@@ -1,20 +1,33 @@
 {
   "name": "claude-clone",
-  "module": "src/index.tsx",
+  "version": "1.0.0",
+  "description": "Agentic Coding CLI (Claude Clone)",
+  "bin": {
+    "claude-clone": "./dist/index.js"
+  },
   "type": "module",
-  "private": true,
   "scripts": {
-    "dev": "bun run --watch src/index.tsx"
+    "dev": "bun run src/index.tsx",
+    "build": "bun build ./src/index.tsx --outdir ./dist --target node --minify",
+    "start": "bun run ./dist/index.js"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node-cron": "^3.0.11"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
+    "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "^0.1.103",
     "@opentui/react": "^0.1.103",
-    "react": "^19.2.4"
+    "commander": "^14.0.3",
+    "fast-glob": "^3.3.3",
+    "node-cron": "^4.2.1",
+    "react": "^19.2.4",
+    "tree-node-cli": "^3.0.0"
   }
 }
