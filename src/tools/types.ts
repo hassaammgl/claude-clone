@@ -1,5 +1,5 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages.mjs";
-import { SessionContext } from "../agent/context";
+import type { SessionContext } from "../agent/context";
 
 export interface ToolCallbacks {
   onAskUserQuestion?: (question: string, options: string[], resolve: (choice: string) => void) => void;

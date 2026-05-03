@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 export const writeTool: ToolDefinition = {
   name: "write_file",

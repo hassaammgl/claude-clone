@@ -13,6 +13,10 @@ export class McpManager {
   private clients: Map<string, Client> = new Map();
   private servers: Map<string, McpServerConfig> = new Map();
 
+  getServers(): McpServerConfig[] {
+    return Array.from(this.servers.values());
+  }
+
   async addServer(config: McpServerConfig): Promise<void> {
     if (this.clients.has(config.name)) {
       throw new Error(`MCP server "${config.name}" is already connected.`);

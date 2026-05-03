@@ -1,7 +1,7 @@
 import path from "path";
 // @ts-ignore
 import { tree } from "tree-node-cli";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 export const treeTool: ToolDefinition = {
   name: "directory_tree",

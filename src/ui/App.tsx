@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { AgentLoop } from "../agent/loop";
 import { createContext } from "../agent/context";
+import type { SessionStats } from "../agent/context";
 import { TextAttributes, SyntaxStyle, RGBA } from "@opentui/core";
-import { PermissionChoice } from "../permissions/engine";
+import type { PermissionChoice } from "../permissions/engine";
+import { allTools } from "../tools/index";
+import { execSync } from "child_process";
 
 const syntaxStyle = SyntaxStyle.fromStyles({
   "markup.heading": { fg: RGBA.fromHex("#58A6FF"), bold: true },
@@ -20,6 +23,9 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
   const [permissionRequest, setPermissionRequest] = useState<{toolName: string, input: any, resolve: (choice: PermissionChoice) => void} | null>(null);
   const [questionRequest, setQuestionRequest] = useState<{question: string, options: string[], resolve: (choice: string) => void} | null>(null);
   const [provider, setProvider] = useState<string>("detecting...");
+  const [stats, setStats] = useState<SessionStats | null>(null);
+  const [gitBranch, setGitBranch] = useState<string>("");
+  const [duration, setDuration] = useState<string>("00:00:00");
   
   const loopRef = useRef<AgentLoop | null>(null);
 
@@ -36,6 +42,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       },
       onContextUpdate: (newContext) => {
         setMessages([...newContext.messages]);
+        setStats({ ...newContext.stats });
       },
       onWaitUserInput: () => {
         setIsWaitingInput(true);
@@ -56,11 +63,32 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
 
     loopRef.current = loop;
     setProvider(loop.getProvider() === "claude" ? "Claude 3.5 Sonnet" : "Gemini 2.0 Flash");
+    setStats({ ...context.stats });
+
+    // Get Git Branch
+    try {
+      const branch = execSync("git branch --show-current", { encoding: "utf8" }).trim();
+      setGitBranch(branch);
+    } catch (e) {
+      setGitBranch("n/a");
+    }
 
     if (initialPrompt) {
       setIsWaitingInput(false);
       loop.start();
     }
+
+    const timer = setInterval(() => {
+      if (context.stats) {
+        const diff = Date.now() - context.stats.startTime;
+        const h = Math.floor(diff / 3600000).toString().padStart(2, "0");
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, "0");
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, "0");
+        setDuration(`${h}:${m}:${s}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, [initialPrompt]);
 
   const handleSubmit = (value: string) => {
@@ -85,20 +113,84 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       ? options[num - 1]
       : options[0];
     setQuestionRequest(null);
-    resolve(answer);
+    resolve(answer ?? "");
   };
 
   return (
     <box flexDirection="column" flexGrow={1} width="100%">
-      <box padding={1} flexDirection="column" borderStyle="round" borderColor="cyan">
+      <box padding={1} flexDirection="column" borderStyle="double" borderColor="cyan">
         <box justifyContent="space-between">
-          <text color="cyan"><b>🤖 {provider.toUpperCase()} CLONE</b></text>
-          <text color="gray">Agentic Coding CLI</text>
+          <box>
+            <text fg="cyan" attributes={TextAttributes.BOLD}>🛸 ANTIGRAVITY</text>
+            <text fg="gray"> • </text>
+            <text fg="magenta" attributes={TextAttributes.BOLD}>{provider.toUpperCase()}</text>
+          </box>
+          <box>
+            <text fg="yellow" attributes={TextAttributes.BOLD}>⏱️ {duration}</text>
+          </box>
         </box>
-        <box marginTop={1} flexDirection="column">
-          <text color="white">📂 CWD: {String(process.cwd())}</text>
-          <text color="white">🛠️ Tools: 27 Loaded</text>
-          <text color="white">🛡️ Security: Permission Engine Active</text>
+        
+        <box marginTop={1} justifyContent="space-between">
+          <box flexDirection="column">
+            <box>
+              <text>📂 </text>
+              <text fg="blue" attributes={TextAttributes.BOLD}>PATH</text>
+              <text>  {String(process.cwd())}</text>
+            </box>
+            <box>
+              <text>🌿 </text>
+              <text fg="green" attributes={TextAttributes.BOLD}>GIT</text>
+              <text>   {gitBranch}</text>
+            </box>
+          </box>
+          <box flexDirection="column" alignItems="flex-end">
+            <box>
+              <text fg="cyan" attributes={TextAttributes.BOLD}>TOOLS</text>
+              <text> {String(allTools.length)} Active 🛠️</text>
+            </box>
+            <box>
+              <text fg="green" attributes={TextAttributes.BOLD}>STATUS</text>
+              <text> {isWaitingInput ? "Ready" : "Busy"} 🛡️</text>
+            </box>
+          </box>
+        </box>
+
+        <box marginTop={1} paddingLeft={1} paddingRight={1} justifyContent="space-between">
+          <box>
+            <text fg="gray">MESSAGES </text>
+            <text fg="white" attributes={TextAttributes.BOLD}>{String(stats?.messageCount || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">CALLS </text>
+            <text fg="white" attributes={TextAttributes.BOLD}>{String(stats?.toolCallCount || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">INPUT </text>
+            <text fg="white" attributes={TextAttributes.BOLD}>{String(stats?.totalTokens.input || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">OUTPUT </text>
+            <text fg="white" attributes={TextAttributes.BOLD}>{String(stats?.totalTokens.output || 0)}</text>
+          </box>
+        </box>
+
+        <box marginTop={1} borderStyle="single" borderColor="gray" paddingLeft={1} paddingRight={1} justifyContent="space-around">
+          <box>
+            <text fg="gray">TASKS: </text>
+            <text fg="cyan">{String(loopRef.current?.getContext().tasks.length || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">CRON: </text>
+            <text fg="yellow">{String(loopRef.current?.getContext().cronJobs.size || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">MCP: </text>
+            <text fg="magenta">{String(loopRef.current?.getContext().mcpManager.getServers().length || 0)}</text>
+          </box>
+          <box>
+            <text fg="gray">JOBS: </text>
+            <text fg="green">{String(loopRef.current?.getContext().backgroundProcesses.size || 0)}</text>
+          </box>
         </box>
       </box>
       
@@ -108,24 +200,24 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
             return msg.content.map((block: any, blockIdx: number) => {
               if (block.type === "tool_use") {
                 return (
-                  <box key={`${i}-${blockIdx}`} flexDirection="column" margin={{ bottom: 1 }}>
-                    <text color="magenta"><b>Tool Call: {String(block.name)}</b></text>
+                  <box key={`${i}-${blockIdx}`} flexDirection="column" marginBottom={1}>
+                    <text fg="magenta" attributes={TextAttributes.BOLD}>Tool Call: {String(block.name)}</text>
                     <text>{JSON.stringify(block.input)}</text>
                   </box>
                 );
               }
               if (block.type === "tool_result") {
                 return (
-                  <box key={`${i}-${blockIdx}`} flexDirection="column" margin={{ bottom: 1 }}>
-                    <text color={block.is_error ? "red" : "gray"}><b>Tool Result:</b></text>
+                  <box key={`${i}-${blockIdx}`} flexDirection="column" marginBottom={1}>
+                    <text fg={block.is_error ? "red" : "gray"} attributes={TextAttributes.BOLD}>Tool Result:</text>
                     <text>{typeof block.content === "string" ? block.content : JSON.stringify(block.content, null, 2)}</text>
                   </box>
                 );
               }
               if (block.type === "text") {
                 return (
-                  <box key={`${i}-${blockIdx}`} flexDirection="column" margin={{ bottom: 1 }}>
-                    <text color="blue"><b>Gemini:</b></text>
+                  <box key={`${i}-${blockIdx}`} flexDirection="column" marginBottom={1}>
+                    <text fg="blue" attributes={TextAttributes.BOLD}>Gemini:</text>
                     <markdown syntaxStyle={syntaxStyle} content={String(block.text)} />
                   </box>
                 );
@@ -136,11 +228,12 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
  
           return [
             (
-              <box key={i} flexDirection="column" margin={{ bottom: 1 }}>
+              <box key={i} flexDirection="column" marginBottom={1}>
                 <text 
-                  color={msg.role === "user" ? "green" : msg.role === "error" ? "red" : "blue"}
+                  fg={msg.role === "user" ? "green" : msg.role === "error" ? "red" : "blue"}
+                  attributes={TextAttributes.BOLD}
                 >
-                  <b>{msg.role === "user" ? "You:" : msg.role === "error" ? "Error:" : "Gemini:"}</b>
+                  {msg.role === "user" ? "You:" : msg.role === "error" ? "Error:" : "Gemini:"}
                 </text>
                 {msg.role === "user" ? (
                   <text>{typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content, null, 2)}</text>
@@ -153,23 +246,23 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
         })}
         
         {!isWaitingInput && streamingContent && (
-          <box flexDirection="column" margin={{ bottom: 1 }}>
-            <text color="blue"><b>Gemini:</b></text>
+          <box flexDirection="column" marginBottom={1}>
+            <text fg="blue" attributes={TextAttributes.BOLD}>Gemini:</text>
             <markdown syntaxStyle={syntaxStyle} content={streamingContent} streaming={true} />
           </box>
         )}
       </scrollbox>
  
       {permissionRequest && (
-        <box flexDirection="column" borderStyle="round" borderColor="yellow" padding={1}>
-          <text attributes={TextAttributes.BOLD} color="yellow">⚠️ Permission Required for: {permissionRequest.toolName}</text>
+        <box flexDirection="column" borderStyle="rounded" borderColor="yellow" padding={1}>
+          <text attributes={TextAttributes.BOLD} fg="yellow">⚠️ Permission Required for: {permissionRequest.toolName}</text>
           <text>Input: {JSON.stringify(permissionRequest.input)}</text>
           <box marginTop={1}>
-             <text color="yellow">Type [1] Allow once | [2] Allow always | [3] Deny: </text>
+             <text fg="yellow">Type [1] Allow once | [2] Allow always | [3] Deny: </text>
              <input 
                focused={true} 
-               onSubmit={(val) => {
-                 const choice = val.trim();
+               onSubmit={(val: any) => {
+                 const choice = val?.trim();
                  if (choice === "1") handlePermissionDecision("allow_once");
                  else if (choice === "2") handlePermissionDecision("allow_always");
                  else handlePermissionDecision("deny");
@@ -180,19 +273,19 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       )}
  
       {questionRequest && (
-        <box flexDirection="column" borderStyle="round" borderColor="cyan" padding={1}>
-          <text attributes={TextAttributes.BOLD} color="cyan">❓ Gemini is asking:</text>
+        <box flexDirection="column" borderStyle="rounded" borderColor="cyan" padding={1}>
+          <text attributes={TextAttributes.BOLD} fg="cyan">❓ Gemini is asking:</text>
           <text>{questionRequest.question}</text>
           <box flexDirection="column" marginTop={1}>
             {questionRequest.options.map((opt, i) => (
-              <text key={i} color="cyan">[{i + 1}] {opt}</text>
+              <text key={i} fg="cyan">[{String(i + 1)}] {opt}</text>
             ))}
           </box>
           <box marginTop={1}>
-            <text color="cyan">Enter number: </text>
+            <text fg="cyan">Enter number: </text>
             <input
               focused={true}
-              onSubmit={handleQuestionAnswer}
+              onSubmit={(val: any) => handleQuestionAnswer(val)}
             />
           </box>
         </box>
@@ -201,14 +294,14 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       {isWaitingInput && !permissionRequest && !questionRequest && (
         <box flexDirection="column">
           <box paddingLeft={1}>
-            <text color="gray">Status: Ready</text>
+            <text fg="gray">Status: Ready</text>
           </box>
-          <box borderStyle="round" borderColor="green" padding={{ left: 1, right: 1 }}>
-            <text color="green">{"> "}</text>
+          <box borderStyle="rounded" borderColor="green" paddingLeft={1} paddingRight={1}>
+            <text fg="green">{"> "}</text>
             <input 
               flexGrow={1}
               focused={true}
-              onSubmit={handleSubmit}
+              onSubmit={(val: any) => handleSubmit(val)}
             />
           </box>
         </box>
@@ -216,7 +309,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
  
       {!isWaitingInput && !permissionRequest && !questionRequest && (
         <box padding={1}>
-          <text color="yellow" attributes={TextAttributes.ITALIC}>Gemini is thinking...</text>
+          <text fg="yellow" attributes={TextAttributes.ITALIC}>Gemini is thinking...</text>
         </box>
       )}
     </box>

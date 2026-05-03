@@ -17,6 +17,16 @@ export interface CronJob {
   task: ScheduledTask;
 }
 
+export interface SessionStats {
+  startTime: number;
+  totalTokens: {
+    input: number;
+    output: number;
+  };
+  messageCount: number;
+  toolCallCount: number;
+}
+
 export interface SessionContext {
   sessionId: string;
   workingDirectory: string;
@@ -28,6 +38,7 @@ export interface SessionContext {
   plan: string;
   mcpManager: McpManager;
   backgroundProcesses: Map<string, any>;
+  stats: SessionStats;
 }
 
 export function createContext(initialPrompt?: string): SessionContext {
@@ -65,6 +76,12 @@ export function createContext(initialPrompt?: string): SessionContext {
     planMode: false,
     plan: "",
     mcpManager: new McpManager(),
-    backgroundProcesses: new Map()
+    backgroundProcesses: new Map(),
+    stats: {
+      startTime: Date.now(),
+      totalTokens: { input: 0, output: 0 },
+      messageCount: messages.length,
+      toolCallCount: 0
+    }
   };
 }

@@ -85,6 +85,7 @@ export class AgentLoop {
       if (handled) return;
     }
     this.context.messages.push({ role: "user", content });
+    this.context.stats.messageCount = this.context.messages.length;
     this.callbacks.onContextUpdate?.(this.context);
     await this.step();
   }
@@ -200,6 +201,11 @@ export class AgentLoop {
       tools: tools as any
     });
 
+    if (response.usage) {
+      this.context.stats.totalTokens.input += response.usage.input_tokens || 0;
+      this.context.stats.totalTokens.output += response.usage.output_tokens || 0;
+    }
+
     let text = "";
     const toolCalls: any[] = [];
 
@@ -217,6 +223,7 @@ export class AgentLoop {
 
     if (text) {
       this.context.messages.push({ role: "model", content: text });
+      this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);
     }
@@ -234,6 +241,7 @@ export class AgentLoop {
             }
           ] as any
         });
+        this.context.stats.messageCount = this.context.messages.length;
         this.callbacks.onContextUpdate?.(this.context);
       }
       await this.step();
@@ -270,10 +278,17 @@ export class AgentLoop {
     );
 
     const response = result.response;
+    
+    if (response.usageMetadata) {
+      this.context.stats.totalTokens.input += response.usageMetadata.promptTokenCount || 0;
+      this.context.stats.totalTokens.output += response.usageMetadata.candidatesTokenCount || 0;
+    }
+
     const text = response.text();
 
     if (text) {
       this.context.messages.push({ role: "model", content: text });
+      this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);
     }
@@ -286,6 +301,7 @@ export class AgentLoop {
           role: "user",
           content: `Tool ${call.name} result: ${toolResult}`,
         });
+        this.context.stats.messageCount = this.context.messages.length;
         this.callbacks.onContextUpdate?.(this.context);
       }
       await this.step();
@@ -319,6 +335,7 @@ export class AgentLoop {
     if (!tool) return `Unknown tool: ${call.name}`;
 
     try {
+      this.context.stats.toolCallCount++;
       return await tool.execute(call.args, this.context, {
         onAskUserQuestion: this.callbacks.onAskUserQuestion,
       });
