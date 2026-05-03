@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { SessionContext } from "./context";
 import { PermissionEngine, PermissionChoice } from "../permissions/engine";
 import { getToolDefinitions, findTool } from "../tools/index";
@@ -17,12 +18,15 @@ export interface AgentLoopCallbacks {
     options: string[],
     resolve: (choice: string) => void,
   ) => void;
+  onContextUpdate?: (context: SessionContext) => void;
   onError?: (error: Error) => void;
 }
 
 export class AgentLoop {
-  private genAI: GoogleGenerativeAI;
+  private genAI?: GoogleGenerativeAI;
+  private claude?: Anthropic;
   private model: any;
+  private provider: "gemini" | "claude" = "gemini";
   private context: SessionContext;
   private callbacks: AgentLoopCallbacks;
   private permissionEngine: PermissionEngine;
@@ -31,24 +35,36 @@ export class AgentLoop {
     this.context = context;
     this.callbacks = callbacks;
     this.permissionEngine = new PermissionEngine();
-    const apiKey =
-      process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-    this.genAI = new GoogleGenerativeAI(apiKey);
+    
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const claudeKey = process.env.ANTHROPIC_API_KEY;
 
-    const tools = [
-      {
-        functionDeclarations: getToolDefinitions().map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.input_schema,
-        })),
-      },
-    ];
+    if (claudeKey) {
+      this.provider = "claude";
+      this.claude = new Anthropic({ apiKey: claudeKey });
+    } else if (geminiKey) {
+      this.provider = "gemini";
+      this.genAI = new GoogleGenerativeAI(geminiKey);
+      
+      const tools = [
+        {
+          functionDeclarations: getToolDefinitions().map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.input_schema,
+          })),
+        },
+      ];
 
-    this.model = this.genAI.getGenerativeModel({
-      model: "gemini-3-flash-preview",
-      tools: tools as any,
-    });
+      this.model = this.genAI.getGenerativeModel({
+        model: "gemini-2-flash-preview",
+        tools: tools as any,
+      });
+    }
+  }
+
+  public getProvider() {
+    return this.provider;
   }
 
   public getContext() {
@@ -69,6 +85,7 @@ export class AgentLoop {
       if (handled) return;
     }
     this.context.messages.push({ role: "user", content });
+    this.callbacks.onContextUpdate?.(this.context);
     await this.step();
   }
 
@@ -114,6 +131,7 @@ export class AgentLoop {
             "Current Settings:\nWorkingDirectory: " +
             this.context.workingDirectory,
         });
+        this.callbacks.onContextUpdate?.(this.context);
         this.callbacks.onWaitUserInput?.();
         return true;
     }
@@ -121,18 +139,28 @@ export class AgentLoop {
   }
 
   private async compactConversation() {
-    // Basic summary logic for Gemini
-    const chat = this.model.startChat({ history: [] });
-    const result = await chat.sendMessage(
-      `Summarize this history: ${JSON.stringify(this.context.messages.slice(0, 20))}`,
-    );
-    const summaryText = result.response.text();
+    let summaryText = "";
+    if (this.provider === "gemini" && this.model) {
+      const chat = this.model.startChat({ history: [] });
+      const result = await chat.sendMessage(
+        `Summarize this history: ${JSON.stringify(this.context.messages.slice(0, 20))}`,
+      );
+      summaryText = result.response.text();
+    } else if (this.provider === "claude" && this.claude) {
+      const response = await this.claude.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: `Summarize this history: ${JSON.stringify(this.context.messages.slice(0, 20))}` }]
+      });
+      summaryText = (response.content[0] as any).text;
+    }
 
     this.context.messages = [
       { role: "user", content: `SUMMARY: ${summaryText}` },
       { role: "model", content: "I have the summary." },
       ...this.context.messages.slice(20),
     ];
+    this.callbacks.onContextUpdate?.(this.context);
   }
 
   private async step() {
@@ -141,55 +169,128 @@ export class AgentLoop {
         await this.compactConversation();
       }
 
-      // Map context messages to Gemini History
-      const history = this.context.messages.slice(0, -1).map((msg) => ({
-        role:
-          msg.role === "assistant" || msg.role === "model" ? "model" : "user",
-        parts: [
-          {
-            text:
-              typeof msg.content === "string"
-                ? msg.content
-                : JSON.stringify(msg.content),
-          },
-        ],
-      }));
-
-      const lastMessage =
-        this.context.messages[this.context.messages.length - 1];
-      const chat = this.model.startChat({ history });
-
-      const result = await chat.sendMessage(
-        typeof lastMessage.content === "string"
-          ? lastMessage.content
-          : JSON.stringify(lastMessage.content),
-      );
-
-      const response = result.response;
-      const text = response.text();
-
-      if (text) {
-        this.callbacks.onStreamComplete?.(text);
-        this.context.messages.push({ role: "model", content: text });
-      }
-
-      const calls = response.functionCalls();
-      if (calls && calls.length > 0) {
-        for (const call of calls) {
-          const toolResult = await this.handleToolUse(call);
-          // For Gemini, we usually send the function response back
-          // We'll add it to messages and step again
-          this.context.messages.push({
-            role: "user",
-            content: `Tool ${call.name} result: ${toolResult}`,
-          });
-        }
-        await this.step();
+      if (this.provider === "gemini") {
+        await this.stepGemini();
       } else {
-        this.callbacks.onWaitUserInput?.();
+        await this.stepClaude();
       }
     } catch (error: any) {
       this.callbacks.onError?.(error);
+    }
+  }
+
+  private async stepClaude() {
+    if (!this.claude) return;
+
+    const tools = getToolDefinitions().map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema
+    }));
+
+    const messages = this.context.messages.map(msg => ({
+      role: msg.role === "model" ? "assistant" : "user",
+      content: typeof msg.content === "string" ? msg.content : msg.content
+    })) as any;
+
+    const response = await this.claude.messages.create({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      messages,
+      tools: tools as any
+    });
+
+    let text = "";
+    const toolCalls: any[] = [];
+
+    for (const content of response.content) {
+      if (content.type === "text") {
+        text += content.text;
+      } else if (content.type === "tool_use") {
+        toolCalls.push({
+          name: content.name,
+          args: content.input,
+          id: content.id
+        });
+      }
+    }
+
+    if (text) {
+      this.context.messages.push({ role: "model", content: text });
+      this.callbacks.onContextUpdate?.(this.context);
+      this.callbacks.onStreamComplete?.(text);
+    }
+
+    if (toolCalls.length > 0) {
+      for (const call of toolCalls) {
+        const toolResult = await this.handleToolUse(call);
+        this.context.messages.push({
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: toolResult
+            }
+          ] as any
+        });
+        this.callbacks.onContextUpdate?.(this.context);
+      }
+      await this.step();
+    } else {
+      this.callbacks.onWaitUserInput?.();
+    }
+  }
+
+  private async stepGemini() {
+    if (!this.model) return;
+
+    // Map context messages to Gemini History
+    const history = this.context.messages.slice(0, -1).map((msg) => ({
+      role:
+        msg.role === "assistant" || msg.role === "model" ? "model" : "user",
+      parts: [
+        {
+          text:
+            typeof msg.content === "string"
+              ? msg.content
+              : JSON.stringify(msg.content),
+        },
+      ],
+    }));
+
+    const lastMessage =
+      this.context.messages[this.context.messages.length - 1];
+    const chat = this.model.startChat({ history });
+
+    const result = await chat.sendMessage(
+      typeof lastMessage.content === "string"
+        ? lastMessage.content
+        : JSON.stringify(lastMessage.content),
+    );
+
+    const response = result.response;
+    const text = response.text();
+
+    if (text) {
+      this.context.messages.push({ role: "model", content: text });
+      this.callbacks.onContextUpdate?.(this.context);
+      this.callbacks.onStreamComplete?.(text);
+    }
+
+    const calls = response.functionCalls();
+    if (calls && calls.length > 0) {
+      for (const call of calls) {
+        const toolResult = await this.handleToolUse(call);
+        this.context.messages.push({
+          role: "user",
+          content: `Tool ${call.name} result: ${toolResult}`,
+        });
+        this.callbacks.onContextUpdate?.(this.context);
+      }
+      await this.step();
+    } else {
+      this.callbacks.onWaitUserInput?.();
     }
   }
 

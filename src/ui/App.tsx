@@ -19,6 +19,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
   const [streamingContent, setStreamingContent] = useState("");
   const [permissionRequest, setPermissionRequest] = useState<{toolName: string, input: any, resolve: (choice: PermissionChoice) => void} | null>(null);
   const [questionRequest, setQuestionRequest] = useState<{question: string, options: string[], resolve: (choice: string) => void} | null>(null);
+  const [provider, setProvider] = useState<string>("detecting...");
   
   const loopRef = useRef<AgentLoop | null>(null);
 
@@ -32,9 +33,9 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       },
       onStreamComplete: () => {
         setStreamingContent("");
-        if (loopRef.current) {
-          setMessages([...loopRef.current.getContext().messages]);
-        }
+      },
+      onContextUpdate: (newContext) => {
+        setMessages([...newContext.messages]);
       },
       onWaitUserInput: () => {
         setIsWaitingInput(true);
@@ -54,6 +55,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
     });
 
     loopRef.current = loop;
+    setProvider(loop.getProvider() === "claude" ? "Claude 3.5 Sonnet" : "Gemini 2.0 Flash");
 
     if (initialPrompt) {
       setIsWaitingInput(false);
@@ -66,7 +68,6 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
     
     setIsWaitingInput(false);
     loopRef.current.submitUserMessage(value);
-    setMessages([...loopRef.current.getContext().messages]);
   };
 
   const handlePermissionDecision = (decision: PermissionChoice) => {
@@ -91,7 +92,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
     <box flexDirection="column" flexGrow={1} width="100%">
       <box padding={1} flexDirection="column" borderStyle="round" borderColor="cyan">
         <box justifyContent="space-between">
-          <text color="cyan"><b>🤖 GEMINI CLONE v1.0.0</b></text>
+          <text color="cyan"><b>🤖 {provider.toUpperCase()} CLONE</b></text>
           <text color="gray">Agentic Coding CLI</text>
         </box>
         <box marginTop={1} flexDirection="column">
