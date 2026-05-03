@@ -70,6 +70,19 @@ export class PermissionEngine {
     }
   }
 
+  public registerBulkDecisions(toolNames: string[]) {
+    let changed = false;
+    for (const name of toolNames) {
+      if (!this.settings.allowedTools.includes(name)) {
+        this.settings.allowedTools.push(name);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.saveSettings();
+    }
+  }
+
   public getAlwaysAllowed(): string[] {
     return this.settings.allowedTools;
   }

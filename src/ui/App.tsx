@@ -22,6 +22,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
   const [streamingContent, setStreamingContent] = useState("");
   const [permissionRequest, setPermissionRequest] = useState<{toolName: string, input: any, resolve: (choice: PermissionChoice) => void} | null>(null);
   const [questionRequest, setQuestionRequest] = useState<{question: string, options: string[], resolve: (choice: string) => void} | null>(null);
+  const [bulkPermissionRequest, setBulkPermissionRequest] = useState<{tools: string[], resolve: (allowed: string[]) => void} | null>(null);
   const [provider, setProvider] = useState<string>("detecting...");
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [gitBranch, setGitBranch] = useState<string>("");
@@ -53,6 +54,10 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       },
       onAskUserQuestion: (question, options, resolve) => {
         setQuestionRequest({ question, options, resolve });
+        setIsWaitingInput(false);
+      },
+      onAskBulkPermission: (tools, resolve) => {
+        setBulkPermissionRequest({ tools, resolve });
         setIsWaitingInput(false);
       },
       onError: (err) => {
@@ -114,6 +119,28 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
       : options[0];
     setQuestionRequest(null);
     resolve(answer ?? "");
+  };
+
+  const handleBulkPermissionAnswer = (input: string) => {
+    if (!bulkPermissionRequest) return;
+    const { tools, resolve } = bulkPermissionRequest;
+    
+    // Parse input like "1, 2, 5" or "1 2 5" or "all"
+    const selection = input.trim().toLowerCase();
+    let allowed: string[] = [];
+
+    if (selection === "all") {
+      allowed = [...tools];
+    } else {
+      const indices = selection.split(/[\s,]+/).map(s => parseInt(s, 10));
+      allowed = indices
+        .filter(idx => idx >= 1 && idx <= tools.length)
+        .map(idx => tools[idx - 1])
+        .filter((t): t is string => t !== undefined);
+    }
+
+    setBulkPermissionRequest(null);
+    resolve(allowed);
   };
 
   return (
@@ -290,8 +317,27 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
           </box>
         </box>
       )}
+
+      {bulkPermissionRequest && (
+        <box flexDirection="column" borderStyle="rounded" borderColor="magenta" padding={1}>
+          <text attributes={TextAttributes.BOLD} fg="magenta">🛡️ Bulk Permission Setup</text>
+          <text>Select tools to pre-approve (always allowed):</text>
+          <box flexDirection="column" marginTop={1}>
+            {bulkPermissionRequest.tools.map((tool, i) => (
+              <text key={i} fg="magenta">[{String(i + 1)}] {tool}</text>
+            ))}
+          </box>
+          <box marginTop={1}>
+            <text fg="magenta">Enter numbers (e.g. 1,2,5) or "all": </text>
+            <input
+              focused={true}
+              onSubmit={(val: any) => handleBulkPermissionAnswer(val)}
+            />
+          </box>
+        </box>
+      )}
  
-      {isWaitingInput && !permissionRequest && !questionRequest && (
+      {isWaitingInput && !permissionRequest && !questionRequest && !bulkPermissionRequest && (
         <box flexDirection="column">
           <box paddingLeft={1}>
             <text fg="gray">Status: Ready</text>
@@ -307,7 +353,7 @@ export function App({ initialPrompt }: { initialPrompt?: string }) {
         </box>
       )}
  
-      {!isWaitingInput && !permissionRequest && !questionRequest && (
+      {!isWaitingInput && !permissionRequest && !questionRequest && !bulkPermissionRequest && (
         <box padding={1}>
           <text fg="yellow" attributes={TextAttributes.ITALIC}>Gemini is thinking...</text>
         </box>

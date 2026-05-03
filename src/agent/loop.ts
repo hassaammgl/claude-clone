@@ -1,7 +1,8 @@
-import { GoogleGenerativeAI, Part } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from "@anthropic-ai/sdk";
-import { SessionContext } from "./context";
-import { PermissionEngine, PermissionChoice } from "../permissions/engine";
+import type { SessionContext } from "./context";
+import { PermissionEngine } from "../permissions/engine";
+import type { PermissionChoice } from "../permissions/engine";
 import { getToolDefinitions, findTool } from "../tools/index";
 
 export interface AgentLoopCallbacks {
@@ -17,6 +18,10 @@ export interface AgentLoopCallbacks {
     question: string,
     options: string[],
     resolve: (choice: string) => void,
+  ) => void;
+  onAskBulkPermission?: (
+    tools: string[],
+    resolve: (allowed: string[]) => void,
   ) => void;
   onContextUpdate?: (context: SessionContext) => void;
   onError?: (error: Error) => void;
@@ -57,7 +62,7 @@ export class AgentLoop {
       ];
 
       this.model = this.genAI.getGenerativeModel({
-        model: "gemini-2-flash-preview",
+        model: "gemini-3-flash-preview",
         tools: tools as any,
       });
     }
@@ -96,11 +101,37 @@ export class AgentLoop {
     switch (cmd) {
       case "/help":
         this.context.messages.push({
-          role: "model",
+          role: "assistant",
           content:
-            "Available commands:\n- /help: Show this help\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings",
+            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings",
         });
         this.callbacks.onWaitUserInput?.();
+        return true;
+      case "/setup":
+        const unapprovedTools = getToolDefinitions()
+          .map((t) => t.name)
+          .filter((name) => !this.permissionEngine.getAlwaysAllowed().includes(name));
+
+        if (unapprovedTools.length === 0) {
+          this.context.messages.push({
+            role: "assistant",
+            content: "All tools are already pre-approved! 🎉",
+          });
+          this.callbacks.onWaitUserInput?.();
+          return true;
+        }
+
+        if (this.callbacks.onAskBulkPermission) {
+          this.callbacks.onAskBulkPermission(unapprovedTools, (allowed) => {
+            this.permissionEngine.registerBulkDecisions(allowed);
+            this.context.messages.push({
+              role: "assistant",
+              content: `Pre-approved ${allowed.length} tools: ${allowed.join(", ")}. I will proceed with your request.`,
+            });
+            this.callbacks.onContextUpdate?.(this.context);
+            this.step();
+          });
+        }
         return true;
       case "/clear":
         this.context.messages = [];
@@ -108,7 +139,7 @@ export class AgentLoop {
         return true;
       case "/permissions":
         this.context.messages.push({
-          role: "model",
+          role: "assistant",
           content:
             "Permission Engine Status: Active\nAlways Allowed: " +
             JSON.stringify([...this.permissionEngine.getAlwaysAllowed()]),
@@ -118,7 +149,7 @@ export class AgentLoop {
       case "/mcp":
         const mcpStatus = await this.context.mcpManager.listAllTools();
         this.context.messages.push({
-          role: "model",
+          role: "assistant",
           content:
             "Connected MCP Servers: " +
             mcpStatus.map((s) => s.serverName).join(", "),
@@ -127,7 +158,7 @@ export class AgentLoop {
         return true;
       case "/settings":
         this.context.messages.push({
-          role: "model",
+          role: "assistant",
           content:
             "Current Settings:\nWorkingDirectory: " +
             this.context.workingDirectory,
@@ -158,7 +189,7 @@ export class AgentLoop {
 
     this.context.messages = [
       { role: "user", content: `SUMMARY: ${summaryText}` },
-      { role: "model", content: "I have the summary." },
+      { role: "assistant", content: "I have the summary." },
       ...this.context.messages.slice(20),
     ];
     this.callbacks.onContextUpdate?.(this.context);
@@ -190,7 +221,7 @@ export class AgentLoop {
     }));
 
     const messages = this.context.messages.map(msg => ({
-      role: msg.role === "model" ? "assistant" : "user",
+      role: msg.role,
       content: typeof msg.content === "string" ? msg.content : msg.content
     })) as any;
 
@@ -222,7 +253,7 @@ export class AgentLoop {
     }
 
     if (text) {
-      this.context.messages.push({ role: "model", content: text });
+      this.context.messages.push({ role: "assistant", content: text });
       this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);
@@ -256,7 +287,7 @@ export class AgentLoop {
     // Map context messages to Gemini History
     const history = this.context.messages.slice(0, -1).map((msg) => ({
       role:
-        msg.role === "assistant" || msg.role === "model" ? "model" : "user",
+        msg.role === "assistant" ? "model" : "user",
       parts: [
         {
           text:
@@ -269,6 +300,7 @@ export class AgentLoop {
 
     const lastMessage =
       this.context.messages[this.context.messages.length - 1];
+    if (!lastMessage) return;
     const chat = this.model.startChat({ history });
 
     const result = await chat.sendMessage(
@@ -287,7 +319,7 @@ export class AgentLoop {
     const text = response.text();
 
     if (text) {
-      this.context.messages.push({ role: "model", content: text });
+      this.context.messages.push({ role: "assistant", content: text });
       this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);
