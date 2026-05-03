@@ -253,7 +253,14 @@ export class AgentLoop {
     }
 
     if (text) {
-      this.context.messages.push({ role: "assistant", content: text });
+      this.context.messages.push({ 
+        role: "assistant", 
+        content: text,
+        usage: response.usage ? {
+          input: response.usage.input_tokens,
+          output: response.usage.output_tokens
+        } : undefined
+      });
       this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);
@@ -319,7 +326,14 @@ export class AgentLoop {
     const text = response.text();
 
     if (text) {
-      this.context.messages.push({ role: "assistant", content: text });
+      this.context.messages.push({ 
+        role: "assistant", 
+        content: text,
+        usage: response.usageMetadata ? {
+          input: response.usageMetadata.promptTokenCount || 0,
+          output: response.usageMetadata.candidatesTokenCount || 0
+        } : undefined
+      });
       this.context.stats.messageCount = this.context.messages.length;
       this.callbacks.onContextUpdate?.(this.context);
       this.callbacks.onStreamComplete?.(text);

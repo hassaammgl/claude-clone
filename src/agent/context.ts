@@ -27,11 +27,18 @@ export interface SessionStats {
   toolCallCount: number;
 }
 
+export interface Message extends MessageParam {
+  usage?: {
+    input: number;
+    output: number;
+  };
+}
+
 export interface SessionContext {
   sessionId: string;
   workingDirectory: string;
   previousWorkingDirectory: string;
-  messages: MessageParam[];
+  messages: Message[];
   tasks: Task[];
   cronJobs: Map<string, CronJob>;
   planMode: boolean;
