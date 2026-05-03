@@ -7,7 +7,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.tsx",
+    "dev": "bun run --watch src/index.tsx",
     "build": "bun build ./src/index.tsx --compile --outfile ./dist/index",
     "start": "bun run ./dist/index.js"
   },

@@ -2,7 +2,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { Command } from "commander";
-import App from "./ui/App";
+import { App } from "./ui/App";
 import { runHeadless } from "./agent/headless";
 
 const program = new Command();
@@ -22,9 +22,6 @@ const initialPrompt = args.length > 0 ? args.join(" ") : undefined;
 if (options.headless || options.pipe) {
   runHeadless(initialPrompt);
 } else {
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
-    targetFps: 30,
-  });
+  const renderer = await createCliRenderer();
   createRoot(renderer).render(<App initialPrompt={initialPrompt} />);
 }
