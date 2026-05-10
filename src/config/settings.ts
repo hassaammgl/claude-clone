@@ -1,10 +1,17 @@
 import fs from "fs";
 import path from "path";
-import os from "os";
+import { getConfigDir } from "./paths";
 
 export interface Settings {
   model: string;
   anthropicApiKey?: string;
+  geminiApiKey?: string;
+  openaiApiKey?: string;
+  openaiBaseUrl?: string;
+  openaiModel?: string;
+  ollamaBaseUrl?: string;
+  ollamaModel?: string;
+  ollamaApiKey?: string;
   globalPermissions: string[];
   mcpServers: {
     name: string;
@@ -20,7 +27,7 @@ const DEFAULT_SETTINGS: Settings = {
   mcpServers: []
 };
 
-const CONFIG_DIR = path.join(os.homedir(), ".claude-clone");
+const CONFIG_DIR = getConfigDir();
 const SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
 
 export function loadSettings(): Settings {
@@ -46,4 +53,8 @@ export function saveSettings(settings: Settings): void {
   } catch (error) {
     console.error("Error saving settings:", error);
   }
+}
+
+export function getSettingsFilePath(): string {
+  return SETTINGS_FILE;
 }

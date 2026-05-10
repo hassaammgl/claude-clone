@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
+import { Box, Text } from "ink";
 import { Header } from "./components/Header";
 import { MessageLog } from "./components/MessageLog";
 import { InputArea } from "./components/InputArea";
 import { AgentLoop } from "../agent/loop";
-import { createContext, SessionStats } from "../agent/context";
+import { createContext } from "../agent/context";
+import type { SessionStats } from "../agent/context";
 import { execSync } from "child_process";
 import { allTools } from "../tools/index";
-import { PermissionChoice } from "../permissions/engine";
+import type { PermissionChoice } from "../permissions/engine";
 
 interface AppProps {
   initialPrompt?: string;
@@ -95,9 +97,15 @@ const App = ({ initialPrompt }: AppProps) => {
     const timer = setInterval(() => {
       if (context.stats) {
         const diff = Date.now() - context.stats.startTime;
-        const h = Math.floor(diff / 3600000).toString().padStart(2, "0");
-        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, "0");
-        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, "0");
+        const h = Math.floor(diff / 3600000)
+          .toString()
+          .padStart(2, "0");
+        const m = Math.floor((diff % 3600000) / 60000)
+          .toString()
+          .padStart(2, "0");
+        const s = Math.floor((diff % 60000) / 1000)
+          .toString()
+          .padStart(2, "0");
         setDuration(`${h}:${m}:${s}`);
       }
     }, 1000);
@@ -119,53 +127,66 @@ const App = ({ initialPrompt }: AppProps) => {
   };
 
   return (
-    <box flexDirection="column" flexGrow={1} width="100%" height="100%" padding={1}>
-      <Header 
-        userName="Jungle Explorer" 
+    <Box flexDirection="column" flexGrow={1} width="100%" padding={1}>
+      <Header
+        userName="Jungle Explorer"
         version="v3.5.0"
         modelInfo={`${provider} · ${duration}`}
         currentPath={String(process.cwd())}
       />
-      
+
       <MessageLog messages={messages} streamingContent={streamingContent} />
 
       {permissionRequest && (
-        <box flexDirection="column" borderStyle="rounded" borderColor="#facc15" padding={1}>
-          <text attributes={{ bold: true }} fg="#facc15">
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="yellow"
+          padding={1}
+        >
+          <Text bold color="yellow">
             ⚠️ Permission Required for: {permissionRequest.toolName}
-          </text>
-          <text fg="gray">Input: {JSON.stringify(permissionRequest.input)}</text>
-          <box marginTop={1}>
-            <text fg="#facc15">Type [1] Allow once | [2] Allow always | [3] Deny: </text>
-            <InputArea onSubmit={(val) => {
-              if (val === "1") handlePermissionDecision("allow_once");
-              else if (val === "2") handlePermissionDecision("allow_always");
-              else handlePermissionDecision("deny");
-            }} />
-          </box>
-        </box>
+          </Text>
+          <Text color="gray">
+            Input: {JSON.stringify(permissionRequest.input)}
+          </Text>
+          <Box marginTop={1}>
+            <Text color="yellow">
+              Type [1] Allow once | [2] Allow always | [3] Deny:{" "}
+            </Text>
+            <InputArea
+              onSubmit={(val) => {
+                if (val === "1") handlePermissionDecision("allow_once");
+                else if (val === "2") handlePermissionDecision("allow_always");
+                else handlePermissionDecision("deny");
+              }}
+            />
+          </Box>
+        </Box>
       )}
 
       {isWaitingInput && !permissionRequest && (
-        <InputArea 
-          onSubmit={handleSubmit} 
+        <InputArea
+          onSubmit={handleSubmit}
           isBusy={false}
           statusText="Whistle a command to the Parrot"
         />
       )}
-      
+
       {!isWaitingInput && !permissionRequest && (
-        <box padding={1}>
-           <text fg="#fb7185" attributes={{ italic: true }}>Parrot is flying through the jungle...</text>
-        </box>
+        <Box padding={1}>
+          <Text color="red" italic>
+            Parrot is flying through the jungle...
+          </Text>
+        </Box>
       )}
-      
-      <box paddingLeft={1} marginTop={0} width="100%">
-        <text fg="gray" wrap="truncate">
+
+      <Box paddingLeft={1} marginTop={0} width="100%">
+        <Text color="gray">
           Tools: {String(allTools.length)} | Branch: {gitBranch} | Squawk! 🦜
-        </text>
-      </box>
-    </box>
+        </Text>
+      </Box>
+    </Box>
   );
 };
 

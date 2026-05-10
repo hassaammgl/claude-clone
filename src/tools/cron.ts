@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { exec } from "child_process";
-import { ToolDefinition } from "./types";
-import { CronJob } from "../agent/context";
+import type { ToolDefinition } from "./types";
+import type { CronJob } from "../agent/context";
 
 export const cronStartTool: ToolDefinition = {
   name: "cron_start",
@@ -9,10 +9,16 @@ export const cronStartTool: ToolDefinition = {
   input_schema: {
     type: "object",
     properties: {
-      expression: { type: "string", description: "Standard cron expression (e.g. '* * * * *')" },
-      command: { type: "string", description: "Bash command to execute periodically" }
+      expression: {
+        type: "string",
+        description: "Standard cron expression (e.g. '* * * * *')",
+      },
+      command: {
+        type: "string",
+        description: "Bash command to execute periodically",
+      },
     },
-    required: ["expression", "command"]
+    required: ["expression", "command"],
   },
   execute: async (input, context) => {
     if (!cron.validate(input.expression)) {
@@ -20,26 +26,30 @@ export const cronStartTool: ToolDefinition = {
     }
 
     const id = `cron_${Math.random().toString(36).substr(2, 6)}`;
-    
+
     // We execute the command but don't return the output to the agent loop
     // since it happens asynchronously in the background.
     const task = cron.schedule(input.expression, () => {
-      exec(input.command, { cwd: context.workingDirectory }, (err, stdout, stderr) => {
-        // Output is swallowed in background, though could optionally write to a log file
-      });
+      exec(
+        input.command,
+        { cwd: context.workingDirectory },
+        (err, stdout, stderr) => {
+          // Output is swallowed in background, though could optionally write to a log file
+        },
+      );
     });
 
     const job: CronJob = {
       id,
       expression: input.expression,
       command: input.command,
-      task
+      task,
     };
 
     context.cronJobs.set(id, job);
 
     return `Successfully scheduled cron job [${id}] with expression '${input.expression}' to run: ${input.command}`;
-  }
+  },
 };
 
 export const cronStopTool: ToolDefinition = {
@@ -48,9 +58,9 @@ export const cronStopTool: ToolDefinition = {
   input_schema: {
     type: "object",
     properties: {
-      job_id: { type: "string" }
+      job_id: { type: "string" },
     },
-    required: ["job_id"]
+    required: ["job_id"],
   },
   execute: async (input, context) => {
     const job = context.cronJobs.get(input.job_id);
@@ -62,7 +72,7 @@ export const cronStopTool: ToolDefinition = {
     context.cronJobs.delete(input.job_id);
 
     return `Successfully stopped and removed cron job [${input.job_id}].`;
-  }
+  },
 };
 
 export const cronListTool: ToolDefinition = {
@@ -70,7 +80,7 @@ export const cronListTool: ToolDefinition = {
   description: "List all active cron jobs.",
   input_schema: {
     type: "object",
-    properties: {}
+    properties: {},
   },
   execute: async (_, context) => {
     if (context.cronJobs.size === 0) {
@@ -79,9 +89,11 @@ export const cronListTool: ToolDefinition = {
 
     const lines: string[] = [];
     for (const [id, job] of context.cronJobs.entries()) {
-      lines.push(`[${id}] Expression: '${job.expression}' | Command: '${job.command}'`);
+      lines.push(
+        `[${id}] Expression: '${job.expression}' | Command: '${job.command}'`,
+      );
     }
 
     return lines.join("\n");
-  }
+  },
 };

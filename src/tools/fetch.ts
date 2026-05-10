@@ -34,7 +34,7 @@ export const fetchUrlTool: ToolDefinition = {
 
     try {
       const response = await fetch(input.url, {
-        headers: { "User-Agent": "claude-clone/1.0 (agentic CLI)" },
+        headers: { "User-Agent": "hero-cli/1.0 (agentic CLI)" },
         signal: AbortSignal.timeout(15000) // 15s timeout
       });
 
@@ -90,7 +90,7 @@ export const webSearchTool: ToolDefinition = {
       const url = `https://api.duckduckgo.com/?q=${encodedQuery}&format=json&no_redirect=1&no_html=1&skip_disambig=1`;
 
       const response = await fetch(url, {
-        headers: { "User-Agent": "claude-clone/1.0 (agentic CLI)" },
+        headers: { "User-Agent": "hero-cli/1.0 (agentic CLI)" },
         signal: AbortSignal.timeout(10000)
       });
 

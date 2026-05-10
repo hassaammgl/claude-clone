@@ -1,5 +1,4 @@
-import React from "react";
-import { TextAttributes } from "@opentui/core";
+import { Box, Text } from "ink";
 import { Logo } from "./Logo";
 
 interface HeaderProps {
@@ -16,61 +15,78 @@ export const Header = ({
   currentPath = process.cwd(),
 }: HeaderProps) => {
   return (
-    <box
+    <Box
       borderStyle="single"
-      borderColor="#2eff58"
+      borderColor="green"
       padding={1}
       flexDirection="column"
       marginBottom={1}
       width="100%"
     >
       {/* Header Info */}
-      <box flexDirection="row" justifyContent="space-between" width="100%">
-        <box flexDirection="column">
-          <text fg="#2eff58" attributes={TextAttributes.BOLD}>🦜 Parrot Code</text>
-          <text fg="#fb7185" attributes={TextAttributes.BOLD}>{modelInfo}</text>
-        </box>
-        <text fg="gray">{version}</text>
-      </box>
+      <Box flexDirection="row" justifyContent="space-between" width="100%">
+        <Box flexDirection="column">
+          <Text color="green" bold>
+            🦜 Parrot Code
+          </Text>
+          <Text color="red" bold>
+            {modelInfo}
+          </Text>
+        </Box>
+        <Text color="gray">{version}</Text>
+      </Box>
 
       {/* Centered Logo with flexible space */}
-      <box 
-        flexDirection="column" 
-        alignItems="center" 
-        marginTop={1} 
+      <Box
+        flexDirection="column"
+        alignItems="center"
+        marginTop={1}
         marginBottom={1}
         width="100%"
       >
         <Logo />
-      </box>
+      </Box>
 
       {/* User Info */}
-      <box flexDirection="column" alignItems="center" width="100%" marginBottom={1}>
-        <text fg="#facc15" attributes={TextAttributes.BOLD}>
+      <Box
+        flexDirection="column"
+        alignItems="center"
+        width="100%"
+        marginBottom={1}
+      >
+        <Text color="yellow" bold>
           Welcome back, {userName}!
-        </text>
-        <text fg="gray" wrap="truncate">
+        </Text>
+        <Text color="gray" wrap="truncate">
           {currentPath}
-        </text>
-      </box>
+        </Text>
+      </Box>
 
       {/* Bottom Status (No border to avoid dashes) */}
-      <box 
+      <Box
         flexDirection="row"
         justifyContent="space-between"
         width="100%"
         paddingLeft={2}
         paddingRight={2}
       >
-        <box flexDirection="row">
-          <text fg="#38bdf8" attributes={TextAttributes.BOLD}>TIPS </text>
-          <text fg="gray" wrap="truncate">Fly through your code...</text>
-        </box>
-        <box flexDirection="row">
-          <text fg="#fb7185" attributes={TextAttributes.BOLD}>NEST </text>
-          <text fg="gray" wrap="truncate">Active & Scanning</text>
-        </box>
-      </box>
-    </box>
+        <Box flexDirection="row">
+          <Text color="blue" bold>
+            TIPS{" "}
+          </Text>
+          <Text color="gray" wrap="truncate">
+            Fly through your code...
+          </Text>
+        </Box>
+        <Box flexDirection="row">
+          <Text color="red" bold>
+            NEST{" "}
+          </Text>
+          <Text color="gray" wrap="truncate">
+            Active & Scanning
+          </Text>
+        </Box>
+      </Box>
+    </Box>
   );
 };

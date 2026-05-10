@@ -1,16 +1,13 @@
-import React from "react";
-import { TextAttributes, SyntaxStyle, RGBA } from "@opentui/core";
+import { Box, Text } from "ink";
+import Markdown from "ink-markdown-es";
 
-const syntaxStyle = SyntaxStyle.fromStyles({
-  "markup.heading": { fg: RGBA.fromHex("#38bdf8"), bold: true },
-  "markup.list": { fg: RGBA.fromHex("#facc15") },
-  "markup.raw": { fg: RGBA.fromHex("#2eff58") },
-  "markup.bold": { bold: true },
-  "markup.italic": { italic: true },
-  default: { fg: RGBA.fromHex("#E6EDF3") },
-});
-
-export type MessageType = "user" | "thought" | "action" | "result" | "error" | "assistant";
+export type MessageType =
+  | "user"
+  | "thought"
+  | "action"
+  | "result"
+  | "error"
+  | "assistant";
 
 interface MessageItemProps {
   type: MessageType;
@@ -19,13 +16,18 @@ interface MessageItemProps {
   isStreaming?: boolean;
 }
 
-export const MessageItem = ({ type, content, label, isStreaming }: MessageItemProps) => {
+export const MessageItem = ({
+  type,
+  content,
+  label,
+  // isStreaming,
+}: MessageItemProps) => {
   const getIcon = () => {
     switch (type) {
       case "user":
         return "🦜 ";
       case "thought":
-        return "● "; 
+        return "● ";
       case "action":
         return "⚡ ";
       case "error":
@@ -38,37 +40,33 @@ export const MessageItem = ({ type, content, label, isStreaming }: MessageItemPr
   const getIconColor = () => {
     switch (type) {
       case "user":
-        return "#38bdf8";
+        return "blue";
       case "thought":
-        return "#fb7185";
+        return "red";
       case "action":
-        return "#facc15";
+        return "yellow";
       case "error":
-        return "#ef4444";
+        return "red";
       default:
         return "gray";
     }
   };
 
   return (
-    <box flexDirection="column" marginBottom={1} width="100%">
-      <box flexDirection="row" width="100%">
-        <text fg={getIconColor()} attributes={TextAttributes.BOLD}>
+    <Box flexDirection="column" marginBottom={1} width="100%">
+      <Box flexDirection="row" width="100%">
+        <Text color={getIconColor()} bold>
           {getIcon()}
-        </text>
+        </Text>
         {label && (
-          <text fg={getIconColor()} attributes={TextAttributes.BOLD} wrap="truncate">
-            {label}: 
-          </text>
+          <Text color={getIconColor()} bold wrap="truncate">
+            {label}:
+          </Text>
         )}
-        <box flexGrow={1} width="100%">
-           <markdown 
-              content={content} 
-              syntaxStyle={syntaxStyle} 
-              streaming={isStreaming}
-           />
-        </box>
-      </box>
-    </box>
+        <Box flexGrow={1}>
+          <Markdown>{content}</Markdown>
+        </Box>
+      </Box>
+    </Box>
   );
 };

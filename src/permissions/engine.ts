@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import os from "os";
+import { getConfigDir } from "../config/paths";
 
 export type PermissionResult = "allow" | "deny" | "ask";
 export type PermissionChoice = "allow_once" | "allow_always" | "deny";
@@ -14,7 +14,7 @@ export class PermissionEngine {
   private settings: Settings;
 
   constructor() {
-    const configDir = path.join(os.homedir(), ".config", "claude-clone");
+    const configDir = getConfigDir();
     this.settingsPath = path.join(configDir, "settings.json");
     
     // Ensure config directory exists

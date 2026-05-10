@@ -2,39 +2,55 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages.mjs";
 import { createContext } from "../agent/context";
 import { allTools, findTool } from "./index";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 // ─── spawn_agent ────────────────────────────────────────────────────────────
 
 export const spawnAgentTool: ToolDefinition = {
   name: "spawn_agent",
-  description: "Spawn a sub-agent with its own isolated context to handle a specific sub-task. The sub-agent runs to completion and returns its final response.",
+  description:
+    "Spawn a sub-agent with its own isolated context to handle a specific sub-task. The sub-agent runs to completion and returns its final response.",
   input_schema: {
     type: "object",
     properties: {
-      prompt: { type: "string", description: "The task prompt for the sub-agent" },
+      prompt: {
+        type: "string",
+        description: "The task prompt for the sub-agent",
+      },
       tools: {
         type: "array",
         items: { type: "string" },
-        description: "Optional list of tool names to give the sub-agent (defaults to read-only tools if not specified)"
-      }
+        description:
+          "Optional list of tool names to give the sub-agent (defaults to read-only tools if not specified)",
+      },
     },
-    required: ["prompt"]
+    required: ["prompt"],
   },
   execute: async (input, context) => {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || "" });
+    const client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY || "",
+    });
 
     // Choose which tools to give sub-agent
-    const allowedToolNames: string[] = input.tools && input.tools.length > 0
-      ? input.tools
-      : ["read_file", "glob_search", "grep_search", "directory_tree", "lsp_diagnostics", "web_search", "fetch_url"];
+    const allowedToolNames: string[] =
+      input.tools && input.tools.length > 0
+        ? input.tools
+        : [
+            "read_file",
+            "glob_search",
+            "grep_search",
+            "directory_tree",
+            "lsp_diagnostics",
+            "web_search",
+            "fetch_url",
+          ];
 
     const subTools = allTools
-      .filter(t => allowedToolNames.includes(t.name))
-      .map(t => ({
+      .filter((t) => allowedToolNames.includes(t.name))
+      .map((t) => ({
         name: t.name,
         description: t.description,
-        input_schema: t.input_schema
+        input_schema: t.input_schema,
       })) as Tool[];
 
     // Create a fresh sub-context inheriting the working directory
@@ -50,7 +66,8 @@ export const spawnAgentTool: ToolDefinition = {
       const response = await client.messages.create({
         model: "claude-3-7-sonnet-20250219",
         max_tokens: 4096,
-        system: "You are a sub-agent. Complete the given task efficiently and return a concise result. Do not ask clarifying questions — use your best judgment.",
+        system:
+          "You are a sub-agent. Complete the given task efficiently and return a concise result. Do not ask clarifying questions — use your best judgment.",
         messages: subMessages,
         tools: subTools.length > 0 ? subTools : undefined,
       });
@@ -87,7 +104,7 @@ export const spawnAgentTool: ToolDefinition = {
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: result
+          content: result,
         });
       }
 
@@ -99,7 +116,7 @@ export const spawnAgentTool: ToolDefinition = {
     }
 
     return `[Sub-Agent Result]\n${finalResponse}`;
-  }
+  },
 };
 
 // ─── ask_user_question ───────────────────────────────────────────────────────
@@ -115,7 +132,8 @@ export function registerQuestionCallback(resolver: QuestionResolver) {
 
 export const askUserQuestionTool: ToolDefinition = {
   name: "ask_user_question",
-  description: "Ask the user a clarifying question with a list of choices. Waits for their selection before continuing.",
+  description:
+    "Ask the user a clarifying question with a list of choices. Waits for their selection before continuing.",
   input_schema: {
     type: "object",
     properties: {
@@ -123,10 +141,10 @@ export const askUserQuestionTool: ToolDefinition = {
       options: {
         type: "array",
         items: { type: "string" },
-        description: "List of answer choices to present to the user"
-      }
+        description: "List of answer choices to present to the user",
+      },
     },
-    required: ["question", "options"]
+    required: ["question", "options"],
   },
   execute: async (input, _, callbacks) => {
     if (!callbacks?.onAskUserQuestion) {
@@ -136,5 +154,5 @@ export const askUserQuestionTool: ToolDefinition = {
     return new Promise<string>((resolve) => {
       callbacks.onAskUserQuestion!(input.question, input.options, resolve);
     });
-  }
+  },
 };

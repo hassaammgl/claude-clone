@@ -1,4 +1,5 @@
 import React from "react";
+import { Box, Text } from "ink";
 
 const logo = `
 ⣇⣿⠘⣿⣿⣿⡿⡿⣟⣟⢟⢟⢟⢝⠵⡝⣿⡿⢂⣼⣿⣷⣌⠩⡫⡻⣝⠹⢿⣿
@@ -19,22 +20,22 @@ const logo = `
 
 export const Logo = () => {
   return (
-    <box flexDirection="column">
+    <Box flexDirection="column">
       {logo
         .trim()
         .split("\n")
         .map((line, i) => {
-          let color = "#2eff58";
-          if (i < 3) color = "#38bdf8";
-          else if (i < 6) color = "#facc15";
-          else if (i < 9) color = "#fb7185";
+          let color = "green";
+          if (i < 3) color = "blue";
+          else if (i < 6) color = "yellow";
+          else if (i < 9) color = "red";
 
           return (
-            <text key={i} fg={color} flexShrink={0}>
+            <Text key={i} color={color}>
               {line}
-            </text>
+            </Text>
           );
         })}
-    </box>
+    </Box>
   );
 };
