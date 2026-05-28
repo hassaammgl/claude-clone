@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.tsx",
-    "build": "bun build ./src/index.tsx --compile --outfile ./dist/index",
+    "build": "bun build ./src/index.tsx --compile --outfile ./dist/hero_cli",
     "start": "bun run ./dist/index.js"
   },
   "devDependencies": {
@@ -34,3 +34,4 @@
     "tree-node-cli": "^3.0.0"
   }
 }
+
