@@ -4,7 +4,7 @@ import type { SessionContext } from "./context";
 import { PermissionEngine } from "../permissions/engine";
 import type { PermissionChoice } from "../permissions/engine";
 import { getToolDefinitions, findTool } from "../tools/index";
-import { loadSettings } from "../config/settings";
+import { loadSettings, saveSettings } from "../config/settings";
 
 type Provider = "gemini" | "claude" | "openai" | "ollama";
 
@@ -138,8 +138,60 @@ export class AgentLoop {
         this.context.messages.push({
           role: "assistant",
           content:
-            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings\n\nConfig (recommended for npx):\n- noni-chan config set anthropicApiKey \"YOUR_ANTHROPIC_KEY\"\n- noni-chan config set geminiApiKey \"YOUR_GEMINI_KEY\"\n- noni-chan config set openaiApiKey \"YOUR_OPENAI_KEY\"\n- noni-chan config set openaiModel \"gpt-4o-mini\"\n- noni-chan config set ollamaBaseUrl \"https://your-ollama-host.example.com\"\n- noni-chan config set ollamaModel \"llama3.1:8b\"\n\n- noni-chan config show\n- noni-chan --headless \"Hello\"",
+            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings\n- /models [name]: List Ollama models or switch to one\n\nConfig (recommended for npx):\n- noni-chan config set anthropicApiKey \"YOUR_ANTHROPIC_KEY\"\n- noni-chan config set geminiApiKey \"YOUR_GEMINI_KEY\"\n- noni-chan config set openaiApiKey \"YOUR_OPENAI_KEY\"\n- noni-chan config set openaiModel \"gpt-4o-mini\"\n- noni-chan config set ollamaBaseUrl \"https://your-ollama-host.example.com\"\n- noni-chan config set ollamaModel \"llama3.1:8b\"\n\n- noni-chan config show\n- noni-chan --headless \"Hello\"",
         });
+        this.callbacks.onWaitUserInput?.();
+        return true;
+      case "/models":
+        try {
+          const settings = loadSettings();
+          const baseUrl = process.env.OLLAMA_BASE_URL || settings.ollamaBaseUrl || "http://localhost:11434";
+          
+          if (args.length === 0) {
+            const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/tags`);
+            if (!res.ok) {
+              throw new Error(`Failed to fetch models from Ollama at ${baseUrl}`);
+            }
+            const data: any = await res.json();
+            const modelsList = data.models || [];
+            
+            if (modelsList.length === 0) {
+              this.context.messages.push({
+                role: "assistant",
+                content: `No Ollama models found at ${baseUrl}. Make sure Ollama is running and you have pulled some models.`,
+              });
+            } else {
+              const currentModel = this.ollamaModel || process.env.OLLAMA_MODEL || settings.ollamaModel || "None";
+              const formattedList = modelsList
+                .map((m: any) => `- ${m.name} (${(m.size / 1024 / 1024 / 1024).toFixed(2)} GB)${m.name === currentModel ? " *active*" : ""}`)
+                .join("\n");
+              
+              this.context.messages.push({
+                role: "assistant",
+                content: `Available Ollama models at ${baseUrl}:\n${formattedList}\n\nTo switch model, type: \`/models <model-name>\``,
+              });
+            }
+          } else {
+            const newModel = args.join(" ");
+            settings.ollamaModel = newModel;
+            saveSettings(settings);
+            
+            this.ollamaModel = newModel;
+            this.provider = "ollama";
+            this.ollamaBaseUrl = baseUrl;
+            
+            this.context.messages.push({
+              role: "assistant",
+              content: `Switched active provider to Ollama and model to: **${newModel}**`,
+            });
+          }
+        } catch (e: any) {
+          this.context.messages.push({
+            role: "assistant",
+            content: `Error listing/switching models: ${e.message}`,
+          });
+        }
+        this.callbacks.onContextUpdate?.(this.context);
         this.callbacks.onWaitUserInput?.();
         return true;
       case "/setup":
