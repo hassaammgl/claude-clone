@@ -12,6 +12,8 @@ export interface Settings {
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   ollamaApiKey?: string;
+  activeProvider?: "claude" | "gemini" | "openai" | "ollama";
+  waifuMode?: boolean;
   globalPermissions: string[];
   mcpServers: {
     name: string;

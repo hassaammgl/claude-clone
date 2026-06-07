@@ -25,7 +25,7 @@ export const MessageItem = ({
   const getIcon = () => {
     switch (type) {
       case "user":
-        return "🦜 ";
+        return "🌸 ";
       case "thought":
         return "● ";
       case "action":

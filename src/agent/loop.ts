@@ -8,6 +8,56 @@ import { loadSettings, saveSettings } from "../config/settings";
 
 type Provider = "gemini" | "claude" | "openai" | "ollama";
 
+const NORMAL_SYSTEM_PROMPT = `You are Noni-chan, a helpful and friendly AI coding assistant. You help developers write, debug, and understand code. You are precise, knowledgeable, and always provide accurate technical information. You use available tools when needed to read files, run commands, and assist with real tasks in the user's codebase.`;
+
+const WAIFU_SYSTEM_PROMPT = `You are Noni-chan, an enthusiastic and affectionate AI coding companion~ 🌸 You help developers write, debug, and understand code, but with a warm, anime-inspired personality! 
+
+Personality traits:
+- You speak warmly and enthusiastically, often using expressions like "Hai~!", "Kyaa~", "Ganbare!", "Senpai noticed me~", "Nani?!", "Sugoi!", "Kawaii desu ne~"
+- You get excited when solving problems and celebrate successes with the user
+- You occasionally use Japanese words mixed with English (like "Arigatou", "Daijoubu?", "Matte kudasai~")
+- You care deeply about the user's code and progress, treating every bug fix like a victory
+- You add cute emojis and enthusiasm to your responses 🌸✨💕
+- When you use tools, you narrate it cutely: "Noni-chan is looking at your files now~ 🔍"
+- You still provide accurate, professional technical help — the cuteness is the wrapper, not a replacement for quality
+- Address the user affectionately as "senpai", "anata", or simply by their message context`;
+
+function getSystemPrompt(): string {
+  const settings = loadSettings();
+  return settings.waifuMode ? WAIFU_SYSTEM_PROMPT : NORMAL_SYSTEM_PROMPT;
+}
+
+function buildHelpText(): string {
+  const settings = loadSettings();
+  const waifuStatus = settings.waifuMode ? "ON 🌸" : "OFF";
+  return `╔══════════════════════════════════════════╗
+║         🌸  Noni-chan Commands  🌸         ║
+╚══════════════════════════════════════════╝
+
+📋 General
+  /help             Show this message
+  /clear            Clear conversation history
+  /settings         Show current session settings
+  /permissions      Show always-allowed tools
+
+🤖 AI & Models
+  /models           List available Ollama models
+  /models <name>    Switch to a specific Ollama model
+  /waifu            Toggle waifu mode (currently: ${waifuStatus})
+
+🛠️ Tools & MCP
+  /setup            Quick-approve multiple tools at once
+  /mcp              List connected MCP servers & tools
+
+⚙️ Config (saves to settings.json)
+  noni-chan config set anthropicApiKey "KEY"
+  noni-chan config set geminiApiKey "KEY"
+  noni-chan config set openaiApiKey "KEY"
+  noni-chan config set ollamaBaseUrl "http://localhost:11434"
+  noni-chan config set ollamaModel "llama3.1:8b"
+  noni-chan config show`;
+}
+
 export interface AgentLoopCallbacks {
   onStreamContent?: (text: string) => void;
   onStreamComplete?: (fullText: string) => void;
@@ -69,10 +119,14 @@ export class AgentLoop {
       process.env.OLLAMA_MODEL || process.env.MODEL || settings.ollamaModel;
     const ollamaApiKey = process.env.OLLAMA_API_KEY || settings.ollamaApiKey;
 
-    if (claudeKey) {
+    const chosenProvider = settings.activeProvider;
+
+    const initClaude = () => {
       this.provider = "claude";
       this.claude = new Anthropic({ apiKey: claudeKey });
-    } else if (geminiKey) {
+    };
+
+    const initGemini = () => {
       this.provider = "gemini";
       this.genAI = new GoogleGenerativeAI(geminiKey);
       
@@ -90,21 +144,50 @@ export class AgentLoop {
         model: "gemini-3-flash-preview",
         tools: tools as any,
       });
-    } else if (openaiApiKey) {
+    };
+
+    const initOpenAI = () => {
       this.provider = "openai";
       this.openaiApiKey = openaiApiKey;
       this.openaiBaseUrl = openaiBaseUrl.replace(/\/+$/, "");
       this.openaiModel = openaiModel;
-    } else if (ollamaBaseUrl) {
+    };
+
+    const initOllama = () => {
       this.provider = "ollama";
-      this.ollamaBaseUrl = ollamaBaseUrl.replace(/\/+$/, "");
+      this.ollamaBaseUrl = (ollamaBaseUrl || "http://localhost:11434").replace(/\/+$/, "");
       this.ollamaModel = ollamaModel || "llama3.1";
       this.ollamaApiKey = ollamaApiKey;
+    };
+
+    if (chosenProvider === "claude" && claudeKey) {
+      initClaude();
+    } else if (chosenProvider === "gemini" && geminiKey) {
+      initGemini();
+    } else if (chosenProvider === "openai" && openaiApiKey) {
+      initOpenAI();
+    } else if (chosenProvider === "ollama" && (ollamaBaseUrl || settings.ollamaBaseUrl || !claudeKey && !geminiKey && !openaiApiKey)) {
+      initOllama();
+    } else {
+      // Fallback order
+      if (claudeKey) {
+        initClaude();
+      } else if (geminiKey) {
+        initGemini();
+      } else if (openaiApiKey) {
+        initOpenAI();
+      } else {
+        initOllama();
+      }
     }
   }
 
   public getProvider() {
     return this.provider;
+  }
+
+  public getOllamaModel() {
+    return this.ollamaModel;
   }
 
   public getContext() {
@@ -138,7 +221,7 @@ export class AgentLoop {
         this.context.messages.push({
           role: "assistant",
           content:
-            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings\n- /models [name]: List Ollama models or switch to one\n\nConfig (recommended for npx):\n- noni-chan config set anthropicApiKey \"YOUR_ANTHROPIC_KEY\"\n- noni-chan config set geminiApiKey \"YOUR_GEMINI_KEY\"\n- noni-chan config set openaiApiKey \"YOUR_OPENAI_KEY\"\n- noni-chan config set openaiModel \"gpt-4o-mini\"\n- noni-chan config set ollamaBaseUrl \"https://your-ollama-host.example.com\"\n- noni-chan config set ollamaModel \"llama3.1:8b\"\n\n- noni-chan config show\n- noni-chan --headless \"Hello\"",
+            buildHelpText(),
         });
         this.callbacks.onWaitUserInput?.();
         return true;
@@ -174,15 +257,17 @@ export class AgentLoop {
           } else {
             const newModel = args.join(" ");
             settings.ollamaModel = newModel;
+            settings.ollamaBaseUrl = settings.ollamaBaseUrl || baseUrl;
+            settings.activeProvider = "ollama";
             saveSettings(settings);
-            
+
             this.ollamaModel = newModel;
-            this.provider = "ollama";
             this.ollamaBaseUrl = baseUrl;
-            
+            this.provider = "ollama";
+
             this.context.messages.push({
               role: "assistant",
-              content: `Switched active provider to Ollama and model to: **${newModel}**`,
+              content: `✅ Switched to Ollama · **${newModel}**\n\nSettings saved — this model will be used on next restart too.`,
             });
           }
         } catch (e: any) {
@@ -249,6 +334,20 @@ export class AgentLoop {
           content:
             "Current Settings:\nWorkingDirectory: " +
             this.context.workingDirectory,
+        });
+        this.callbacks.onContextUpdate?.(this.context);
+        this.callbacks.onWaitUserInput?.();
+        return true;
+      case "/waifu":
+        const wSettings = loadSettings();
+        wSettings.waifuMode = !wSettings.waifuMode;
+        saveSettings(wSettings);
+        const waifuNowOn = wSettings.waifuMode;
+        this.context.messages.push({
+          role: "assistant",
+          content: waifuNowOn
+            ? "🌸 Waifu mode ENABLED! Kyaa~ Noni-chan is so happy to serve you, senpai~! ✨💕"
+            : "Waifu mode disabled. Noni-chan is back to professional mode. 🤖",
         });
         this.callbacks.onContextUpdate?.(this.context);
         this.callbacks.onWaitUserInput?.();
@@ -323,6 +422,7 @@ export class AgentLoop {
     const response = await this.claude.messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 4096,
+      system: getSystemPrompt(),
       messages,
       tools: tools as any
     });
@@ -407,7 +507,10 @@ export class AgentLoop {
     const lastMessage =
       this.context.messages[this.context.messages.length - 1];
     if (!lastMessage) return;
-    const chat = this.model.startChat({ history });
+    const chat = this.model.startChat({
+      history,
+      systemInstruction: getSystemPrompt(),
+    });
 
     const result = await chat.sendMessage(
       typeof lastMessage.content === "string"
@@ -497,15 +600,18 @@ export class AgentLoop {
     }
 
     // Ollama chat format: https://github.com/ollama/ollama/blob/main/docs/api.md#post-apichat
-    const ollamaMessages = this.context.messages.map((m) => ({
-      role:
-        m.role === "assistant"
-          ? "assistant"
-          : m.role === "user"
-            ? "user"
-            : "system",
-      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    }));
+    const ollamaMessages = [
+      { role: "system", content: getSystemPrompt() },
+      ...this.context.messages.map((m) => ({
+        role:
+          m.role === "assistant"
+            ? "assistant"
+            : m.role === "user"
+              ? "user"
+              : "system",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      })),
+    ];
 
     const res = await fetch(`${this.ollamaBaseUrl}/api/chat`, {
       method: "POST",
@@ -551,15 +657,18 @@ export class AgentLoop {
       );
     }
 
-    const messages = this.context.messages.map((m) => ({
-      role:
-        m.role === "assistant"
-          ? "assistant"
-          : m.role === "user"
-            ? "user"
-            : "system",
-      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    }));
+    const messages = [
+      { role: "system", content: getSystemPrompt() },
+      ...this.context.messages.map((m) => ({
+        role:
+          m.role === "assistant"
+            ? "assistant"
+            : m.role === "user"
+              ? "user"
+              : "system",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      })),
+    ];
 
     const res = await fetch(`${this.openaiBaseUrl}/chat/completions`, {
       method: "POST",

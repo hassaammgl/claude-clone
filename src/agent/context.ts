@@ -3,6 +3,7 @@ import type { ScheduledTask } from "node-cron";
 import { McpManager } from "../mcp/client.ts";
 import fs from "fs";
 import path from "path";
+import { loadSettings } from "../config/settings";
 
 export interface Task {
   id: string;
@@ -48,9 +49,41 @@ export interface SessionContext {
   stats: SessionStats;
 }
 
+function buildStartupWelcome(): string {
+  const settings = loadSettings();
+  const waifuStatus = settings.waifuMode ? "ON 🌸" : "OFF";
+  return `╔══════════════════════════════════════════╗
+║     🌸  Welcome to Noni-chan CLI!  🌸     ║
+╚══════════════════════════════════════════╝
+
+📋 /help             Show all commands
+   /clear            Clear conversation history
+   /settings         Show current session settings
+   /permissions      Show always-allowed tools
+
+🤖 /models           List available Ollama models
+   /models <name>    Switch to a specific Ollama model
+   /waifu            Toggle waifu mode (currently: ${waifuStatus})
+
+🛠️ /setup            Quick-approve multiple tools at once
+   /mcp              List connected MCP servers & tools
+
+Type your question or command to get started!`;
+}
+
 export function createContext(initialPrompt?: string): SessionContext {
   const messages: MessageParam[] = [];
-  
+
+  // Show startup welcome with all commands
+  messages.push({
+    role: "user",
+    content: "__startup__",
+  });
+  messages.push({
+    role: "assistant",
+    content: buildStartupWelcome(),
+  });
+
   // Load CLAUDE.md if it exists in the current directory
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
   if (fs.existsSync(claudeMdPath)) {
