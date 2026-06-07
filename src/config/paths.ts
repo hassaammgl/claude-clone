@@ -2,16 +2,16 @@ import os from "os";
 import path from "path";
 
 /**
- * Cross-platform config directory for hero-cli.
+ * Cross-platform config directory for noni-chan.
  *
- * - Windows: %APPDATA%\hero-cli
- * - macOS:   ~/Library/Application Support/hero-cli
- * - Linux:   $XDG_CONFIG_HOME/hero-cli or ~/.config/hero-cli
+ * - Windows: %APPDATA%\noni-chan
+ * - macOS:   ~/Library/Application Support/noni-chan
+ * - Linux:   $XDG_CONFIG_HOME/noni-chan or ~/.config/noni-chan
  */
 export function getConfigDir(): string {
   if (process.platform === "win32") {
     const appData = process.env.APPDATA;
-    return path.join(appData || os.homedir(), "hero-cli");
+    return path.join(appData || os.homedir(), "noni-chan");
   }
 
   if (process.platform === "darwin") {
@@ -19,11 +19,11 @@ export function getConfigDir(): string {
       os.homedir(),
       "Library",
       "Application Support",
-      "hero-cli",
+      "noni-chan",
     );
   }
 
   const xdg = process.env.XDG_CONFIG_HOME;
-  return path.join(xdg || path.join(os.homedir(), ".config"), "hero-cli");
+  return path.join(xdg || path.join(os.homedir(), ".config"), "noni-chan");
 }
 

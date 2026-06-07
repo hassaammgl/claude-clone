@@ -138,7 +138,7 @@ export class AgentLoop {
         this.context.messages.push({
           role: "assistant",
           content:
-            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings\n\nConfig (recommended for npx):\n- hero-cli config set anthropicApiKey \"YOUR_ANTHROPIC_KEY\"\n- hero-cli config set geminiApiKey \"YOUR_GEMINI_KEY\"\n- hero-cli config set openaiApiKey \"YOUR_OPENAI_KEY\"\n- hero-cli config set openaiModel \"gpt-4o-mini\"\n- hero-cli config set ollamaBaseUrl \"https://your-ollama-host.example.com\"\n- hero-cli config set ollamaModel \"llama3.1:8b\"\n\n- hero-cli config show\n- hero-cli --headless \"Hello\"",
+            "Available commands:\n- /help: Show this help\n- /setup: Quick-approve multiple tools at once\n- /clear: Clear conversation history\n- /permissions: Show permission status\n- /mcp: List MCP servers/tools\n- /settings: Show settings\n\nConfig (recommended for npx):\n- noni-chan config set anthropicApiKey \"YOUR_ANTHROPIC_KEY\"\n- noni-chan config set geminiApiKey \"YOUR_GEMINI_KEY\"\n- noni-chan config set openaiApiKey \"YOUR_OPENAI_KEY\"\n- noni-chan config set openaiModel \"gpt-4o-mini\"\n- noni-chan config set ollamaBaseUrl \"https://your-ollama-host.example.com\"\n- noni-chan config set ollamaModel \"llama3.1:8b\"\n\n- noni-chan config show\n- noni-chan --headless \"Hello\"",
         });
         this.callbacks.onWaitUserInput?.();
         return true;

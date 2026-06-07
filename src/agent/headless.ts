@@ -5,7 +5,7 @@ import { PermissionChoice } from "../permissions/engine";
 
 export async function runHeadless(initialPrompt?: string) {
   console.log("========================================");
-  console.log("🤖 HERO-CLI v1.0.0 (HEADLESS)");
+  console.log("🤖 NONI-CHAN v1.0.0 (HEADLESS)");
   console.log(`📂 CWD: ${process.cwd()}`);
   console.log("🛠️  27 Tools Loaded");
   console.log("========================================\n");
@@ -22,7 +22,7 @@ export async function runHeadless(initialPrompt?: string) {
       // In headless mode, we might not want to stream every single chunk to avoid cluttering pipes
     },
     onStreamComplete: (fullText) => {
-      process.stdout.write(`\nHero: ${fullText}\n`);
+      process.stdout.write(`\nNoni-chan: ${fullText}\n`);
     },
     onWaitUserInput: () => {
       process.stdout.write("\n> ");
@@ -44,7 +44,7 @@ export async function runHeadless(initialPrompt?: string) {
       });
     },
     onAskUserQuestion: (question, options, resolve) => {
-      console.log(`\n❓ Hero is asking: ${question}`);
+      console.log(`\n❓ Noni-chan is asking: ${question}`);
       options.forEach((opt, i) => console.log(`[${i + 1}] ${opt}`));
       
       const askRl = readline.createInterface({

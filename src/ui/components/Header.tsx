@@ -11,7 +11,7 @@ interface HeaderProps {
 export const Header = ({
   version = "v2.0.55",
   userName = "User",
-  modelInfo = "Tropical Parrot · v3.5",
+  modelInfo = "Noni-chan · v3.5",
   currentPath = process.cwd(),
 }: HeaderProps) => {
   return (
@@ -27,7 +27,7 @@ export const Header = ({
       <Box flexDirection="row" justifyContent="space-between" width="100%">
         <Box flexDirection="column">
           <Text color="green" bold>
-            🦜 Parrot Code
+            🌸 Noni-chan
           </Text>
           <Text color="red" bold>
             {modelInfo}
@@ -75,12 +75,12 @@ export const Header = ({
             TIPS{" "}
           </Text>
           <Text color="gray" wrap="truncate">
-            Fly through your code...
+            Code with Noni-chan...
           </Text>
         </Box>
         <Box flexDirection="row">
           <Text color="red" bold>
-            NEST{" "}
+            AGENT{" "}
           </Text>
           <Text color="gray" wrap="truncate">
             Active & Scanning

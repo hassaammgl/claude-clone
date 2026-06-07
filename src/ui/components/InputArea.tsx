@@ -10,7 +10,7 @@ interface InputAreaProps {
 
 export const InputArea = ({
   onSubmit,
-  statusText = "Ready to fly",
+  statusText = "Ready",
   isBusy = false,
 }: InputAreaProps) => {
   const [query, setQuery] = useState("");
@@ -24,7 +24,7 @@ export const InputArea = ({
     <Box flexDirection="column" marginTop={1} width="100%">
       <Box paddingLeft={1} marginBottom={0}>
         <Text color="red" italic wrap="truncate">
-          {isBusy ? "Parrot is scanning the jungle..." : statusText}
+          {isBusy ? "Noni-chan is working..." : statusText}
         </Text>
       </Box>
       <Box
@@ -36,7 +36,7 @@ export const InputArea = ({
         flexDirection="row"
       >
         <Text color={isBusy ? "gray" : "green"} bold>
-          {"🦜 > "}
+          {"🌸 > "}
         </Text>
         <TextInput
           value={query}

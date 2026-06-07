@@ -11,16 +11,16 @@ import {
 
 const program = new Command();
 
-program.name("hero-cli").description("Agentic Coding CLI (Hero CLI)");
+program.name("noni-chan").description("Agentic Coding CLI (Noni-chan CLI)");
 program.addHelpText(
   "after",
-  `\nExamples:\n  hero-cli config set anthropicApiKey "YOUR_ANTHROPIC_KEY"\n  hero-cli config set geminiApiKey "YOUR_GEMINI_KEY"\n  hero-cli config set openaiApiKey "YOUR_OPENAI_KEY"\n  hero-cli config set openaiModel "gpt-4o-mini"\n  hero-cli config set ollamaBaseUrl "https://your-ollama-host.example.com"\n  hero-cli config set ollamaModel "llama3.1:8b"\n\n  hero-cli config show\n  hero-cli --headless "Hello"\n`,
+  `\nExamples:\n  noni-chan config set anthropicApiKey "YOUR_ANTHROPIC_KEY"\n  noni-chan config set geminiApiKey "YOUR_GEMINI_KEY"\n  noni-chan config set openaiApiKey "YOUR_OPENAI_KEY"\n  noni-chan config set openaiModel "gpt-4o-mini"\n  noni-chan config set ollamaBaseUrl "https://your-ollama-host.example.com"\n  noni-chan config set ollamaModel "llama3.1:8b"\n\n  noni-chan config show\n  noni-chan --headless "Hello"\n`,
 );
 
 const configCmd = program
   .command("config")
   .description(
-    "View/update hero-cli configuration (stores keys cross-platform)",
+    "View/update noni-chan configuration (stores keys cross-platform)",
   );
 
 configCmd

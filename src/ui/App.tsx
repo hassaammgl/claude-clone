@@ -129,7 +129,7 @@ const App = ({ initialPrompt }: AppProps) => {
   return (
     <Box flexDirection="column" flexGrow={1} width="100%" padding={1}>
       <Header
-        userName="Jungle Explorer"
+        userName="Developer"
         version="v3.5.0"
         modelInfo={`${provider} · ${duration}`}
         currentPath={String(process.cwd())}
@@ -169,21 +169,21 @@ const App = ({ initialPrompt }: AppProps) => {
         <InputArea
           onSubmit={handleSubmit}
           isBusy={false}
-          statusText="Whistle a command to the Parrot"
+          statusText="Give a command to Noni-chan"
         />
       )}
 
       {!isWaitingInput && !permissionRequest && (
         <Box padding={1}>
           <Text color="red" italic>
-            Parrot is flying through the jungle...
+            Noni-chan is working on it...
           </Text>
         </Box>
       )}
 
       <Box paddingLeft={1} marginTop={0} width="100%">
         <Text color="gray">
-          Tools: {String(allTools.length)} | Branch: {gitBranch} | Squawk! 🦜
+          Tools: {String(allTools.length)} | Branch: {gitBranch} | Noni-chan 🌸
         </Text>
       </Box>
     </Box>

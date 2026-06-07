@@ -30,7 +30,7 @@ export class McpManager {
 
     const client = new Client(
       {
-        name: "hero-cli-client",
+        name: "noni-chan-client",
         version: "1.0.0",
       },
       {
