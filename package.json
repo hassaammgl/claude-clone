@@ -1,6 +1,6 @@
 {
   "name": "noni-chan",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Agentic Coding CLI (Noni-chan CLI)",
   "bin": {
     "noni-chan": "./dist/index.js"
