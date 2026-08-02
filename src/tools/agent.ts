@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Tool } from "@anthropic-ai/sdk/resources/messages.mjs";
+import type {
+  MessageParam,
+  Tool,
+} from "@anthropic-ai/sdk/resources/messages.mjs";
 import { createContext } from "../agent/context";
 import { allTools, findTool } from "./index";
 import type { ToolDefinition } from "./types";
@@ -57,7 +60,12 @@ export const spawnAgentTool: ToolDefinition = {
     const subContext = createContext(input.prompt);
     subContext.workingDirectory = context.workingDirectory;
 
-    const subMessages = [...subContext.messages];
+    const subMessages: MessageParam[] = subContext.messages
+      .filter((msg) => msg.role === "user" || msg.role === "assistant")
+      .map((msg) => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      }));
     let finalResponse = "";
 
     // Run the sub-agent loop until completion
@@ -85,7 +93,11 @@ export const spawnAgentTool: ToolDefinition = {
       if (response.stop_reason !== "tool_use") break;
 
       // Execute tool calls
-      const toolResults: any[] = [];
+      const toolResults: Array<{
+        type: "tool_result";
+        tool_use_id: string;
+        content: string;
+      }> = [];
       for (const block of response.content) {
         if (block.type !== "tool_use") continue;
 
@@ -94,8 +106,8 @@ export const spawnAgentTool: ToolDefinition = {
         if (tool) {
           try {
             result = await tool.execute(block.input, subContext);
-          } catch (e: any) {
-            result = `Tool error: ${e.message}`;
+          } catch (error: unknown) {
+            result = `Tool error: ${error instanceof Error ? error.message : String(error)}`;
           }
         } else {
           result = `Unknown tool: ${block.name}`;

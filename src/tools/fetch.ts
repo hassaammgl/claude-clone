@@ -1,4 +1,4 @@
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 /**
  * Strips HTML tags, scripts, and styles from raw HTML, returning clean readable text.

@@ -1,7 +1,7 @@
 import * as readline from "readline";
 import { AgentLoop } from "./loop";
 import { createContext } from "./context";
-import { PermissionChoice } from "../permissions/engine";
+import { saveSession } from "./session-store";
 
 export async function runHeadless(initialPrompt?: string) {
   console.log("========================================");
@@ -23,6 +23,9 @@ export async function runHeadless(initialPrompt?: string) {
     },
     onStreamComplete: (fullText) => {
       process.stdout.write(`\nNoni-chan: ${fullText}\n`);
+    },
+    onContextUpdate: (ctx) => {
+      saveSession(ctx);
     },
     onWaitUserInput: () => {
       process.stdout.write("\n> ");
@@ -55,8 +58,11 @@ export async function runHeadless(initialPrompt?: string) {
       askRl.question("Enter number: ", (answer) => {
         askRl.close();
         const idx = parseInt(answer, 10);
-        const choice = (idx >= 1 && idx <= options.length) ? options[idx - 1] : options[0];
-        resolve(choice);
+        const choice =
+          idx >= 1 && idx <= options.length
+            ? options[idx - 1]
+            : options[0];
+        resolve(choice ?? "");
       });
     },
     onError: (error) => {

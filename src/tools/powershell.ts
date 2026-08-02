@@ -1,5 +1,5 @@
 import { exec } from "child_process";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 export const powershellTool: ToolDefinition = {
   name: "powershell",

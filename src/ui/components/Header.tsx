@@ -1,92 +1,42 @@
 import { Box, Text } from "ink";
-import { Logo } from "./Logo";
+import { theme } from "../theme";
+import { LiveDot } from "./Motion";
 
 interface HeaderProps {
-  version?: string;
-  userName?: string;
-  modelInfo?: string;
-  currentPath?: string;
+  modelLabel: string;
+  hint?: string;
+  busy?: boolean;
 }
 
 export const Header = ({
-  version = "v2.0.55",
-  userName = "User",
-  modelInfo = "Noni-chan · v3.5",
-  currentPath = process.cwd(),
+  modelLabel,
+  hint = "Inspect & code with Noni-chan",
+  busy = false,
 }: HeaderProps) => {
   return (
     <Box
-      borderStyle="single"
-      borderColor="green"
-      padding={1}
-      flexDirection="column"
-      marginBottom={1}
+      flexDirection="row"
       width="100%"
+      justifyContent="space-between"
+      paddingX={1}
+      backgroundColor={theme.bgHeader}
     >
-      {/* Header Info */}
-      <Box flexDirection="row" justifyContent="space-between" width="100%">
-        <Box flexDirection="column">
-          <Text color="green" bold>
-            🌸 Noni-chan
-          </Text>
-          <Text color="red" bold>
-            {modelInfo}
-          </Text>
-        </Box>
-        <Text color="gray">{version}</Text>
-      </Box>
-
-      {/* Centered Logo with flexible space */}
-      <Box
-        flexDirection="column"
-        alignItems="center"
-        marginTop={1}
-        marginBottom={1}
-        width="100%"
-      >
-        <Logo />
-      </Box>
-
-      {/* User Info */}
-      <Box
-        flexDirection="column"
-        alignItems="center"
-        width="100%"
-        marginBottom={1}
-      >
-        <Text color="yellow" bold>
-          Welcome back, {userName}!
+      <Box flexDirection="row" backgroundColor={theme.bgHeader}>
+        <LiveDot active backgroundColor={theme.bgHeader} />
+        <Text color={theme.cream} bold backgroundColor={theme.bgHeader}>
+          {" "}
+          {hint}
         </Text>
-        <Text color="gray" wrap="truncate">
-          {currentPath}
-        </Text>
+        {busy ? (
+          <Text color={theme.busy} backgroundColor={theme.bgHeader}>
+            {" "}
+            · thinking
+          </Text>
+        ) : null}
       </Box>
-
-      {/* Bottom Status (No border to avoid dashes) */}
-      <Box
-        flexDirection="row"
-        justifyContent="space-between"
-        width="100%"
-        paddingLeft={2}
-        paddingRight={2}
-      >
-        <Box flexDirection="row">
-          <Text color="blue" bold>
-            TIPS{" "}
-          </Text>
-          <Text color="gray" wrap="truncate">
-            Code with Noni-chan...
-          </Text>
-        </Box>
-        <Box flexDirection="row">
-          <Text color="red" bold>
-            AGENT{" "}
-          </Text>
-          <Text color="gray" wrap="truncate">
-            Active & Scanning
-          </Text>
-        </Box>
-      </Box>
+      <Text color={theme.brand} backgroundColor={theme.bgHeader}>
+        {modelLabel}
+      </Text>
     </Box>
   );
 };

@@ -15,7 +15,7 @@ import { spawnAgentTool, askUserQuestionTool } from "./agent";
 import { addMcpServerTool, listMcpToolsTool, useMcpToolTool, listMcpResourcesTool, readMcpResourceTool, searchMcpToolsTool } from "./mcp";
 import { powershellTool } from "./powershell";
 import { monitorTool, monitorListTool, monitorStopTool } from "./monitor";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 export const allTools: ToolDefinition[] = [
   readTool,

@@ -1,4 +1,4 @@
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 const BLOCKED_IN_PLAN_MODE = ["write_file", "edit_file", "bash", "cron_start"];
 

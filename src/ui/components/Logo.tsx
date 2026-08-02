@@ -1,5 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { theme } from "../theme";
+import { pickFrame, useTick } from "../hooks/useTick";
 
 const logo = `
 ⣇⣿⠘⣿⣿⣿⡿⡿⣟⣟⢟⢟⢟⢝⠵⡝⣿⡿⢂⣼⣿⣷⣌⠩⡫⡻⣝⠹⢿⣿
@@ -15,27 +17,33 @@ const logo = `
 ⣷⢄⠻⣿⣟⠿⠦⠍⠉⣡⣾⣿⣿⣿⣿⣿⣿⢸⣿⣦⠙⣿⣿⣿⣿⣿⣿⣿⣿⠟
 ⡕⡑⣑⣈⣻⢗⢟⢞⢝⣻⣿⣿⣿⣿⣿⣿⣿⠸⣿⠿⠃⣿⣿⣿⣿⣿⣿⡿⠁⣠
 ⡝⡵⡈⢟⢕⢕⢕⢕⣵⣿⣿⣿⣿⣿⣿⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿⠿⠋⣀⣈⠙
-⡝⡵⡕⡀⠑⠳⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⢉⡠⡲⡫⡪⡪⡣ 
-`;
+⡝⡵⡕⡀⠑⠳⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⢉⡠⡲⡫⡪⡪⡣`;
+
+const PALETTE = [
+  theme.brand,
+  theme.accent,
+  theme.green,
+  theme.yellow,
+  theme.accent,
+] as const;
 
 export const Logo = () => {
+  const frame = useTick(220, true);
+
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" alignItems="center" backgroundColor={theme.bg}>
       {logo
         .trim()
         .split("\n")
-        .map((line, i) => {
-          let color = "green";
-          if (i < 3) color = "blue";
-          else if (i < 6) color = "yellow";
-          else if (i < 9) color = "red";
-
-          return (
-            <Text key={i} color={color}>
-              {line}
-            </Text>
-          );
-        })}
+        .map((line, i) => (
+          <Text
+            key={i}
+            color={pickFrame(PALETTE, frame + i)}
+            backgroundColor={theme.bg}
+          >
+            {line}
+          </Text>
+        ))}
     </Box>
   );
 };

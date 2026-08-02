@@ -3,7 +3,7 @@ import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import fg from "fast-glob";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -79,7 +79,7 @@ async function jsGrepFallback(pattern: string, searchPath: string, fileGlob: str
       const lines = content.split("\n");
       
       for (let i = 0; i < lines.length; i++) {
-        if (regex.test(lines[i])) {
+        if (regex.test(lines[i] ?? "")) {
           const relativePath = path.relative(cwd, file);
           results.push(`${relativePath}:${i + 1}:${lines[i]}`);
           // Reset regex state due to global flag

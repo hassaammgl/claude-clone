@@ -1,6 +1,6 @@
 import path from "path";
 import fg from "fast-glob";
-import { ToolDefinition } from "./types";
+import type { ToolDefinition } from "./types";
 
 export const globTool: ToolDefinition = {
   name: "glob_search",

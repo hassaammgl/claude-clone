@@ -1,5 +1,5 @@
-import { ToolDefinition } from "./types";
-import { Task } from "../agent/context";
+import type { ToolDefinition } from "./types";
+import type { Task } from "../agent/context";
 
 export const taskCreateTool: ToolDefinition = {
   name: "task_create",

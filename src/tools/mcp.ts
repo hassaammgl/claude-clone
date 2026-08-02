@@ -1,5 +1,5 @@
-import { ToolDefinition } from "./types.ts";
-import { SessionContext } from "../agent/context.ts";
+import type { ToolDefinition } from "./types.ts";
+import type { SessionContext } from "../agent/context.ts";
 
 export const addMcpServerTool: ToolDefinition = {
   name: "add_mcp_server",

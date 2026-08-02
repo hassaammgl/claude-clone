@@ -1,200 +1,94 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import Anthropic from "@anthropic-ai/sdk";
 import type { SessionContext } from "./context";
+import type { AgentLoopCallbacks } from "./callbacks";
 import { PermissionEngine } from "../permissions/engine";
 import type { PermissionChoice } from "../permissions/engine";
-import { getToolDefinitions, findTool } from "../tools/index";
-import { loadSettings, saveSettings } from "../config/settings";
+import { findTool } from "../tools/index";
+import {
+  createOllamaProviderBundle,
+  createProviderBundle,
+  type LlmProvider,
+  type ProviderBundle,
+  type ProviderName,
+  type ToolCallRequest,
+} from "./providers/index";
+import { ClaudeProvider } from "./providers/claude";
+import { GeminiProvider } from "./providers/gemini";
+import { handleSlashCommand } from "./slash-commands";
 
-type Provider = "gemini" | "claude" | "openai" | "ollama";
+export type { AgentLoopCallbacks } from "./callbacks";
 
-const NORMAL_SYSTEM_PROMPT = `You are Noni-chan, a helpful and friendly AI coding assistant. You help developers write, debug, and understand code. You are precise, knowledgeable, and always provide accurate technical information. You use available tools when needed to read files, run commands, and assist with real tasks in the user's codebase.`;
+const MESSAGE_COMPACT_THRESHOLD = 40;
+const COMPACT_KEEP_RECENT = 20;
 
-const WAIFU_SYSTEM_PROMPT = `You are Noni-chan, an enthusiastic and affectionate AI coding companion~ 🌸 You help developers write, debug, and understand code, but with a warm, anime-inspired personality! 
-
-Personality traits:
-- You speak warmly and enthusiastically, often using expressions like "Hai~!", "Kyaa~", "Ganbare!", "Senpai noticed me~", "Nani?!", "Sugoi!", "Kawaii desu ne~"
-- You get excited when solving problems and celebrate successes with the user
-- You occasionally use Japanese words mixed with English (like "Arigatou", "Daijoubu?", "Matte kudasai~")
-- You care deeply about the user's code and progress, treating every bug fix like a victory
-- You add cute emojis and enthusiasm to your responses 🌸✨💕
-- When you use tools, you narrate it cutely: "Noni-chan is looking at your files now~ 🔍"
-- You still provide accurate, professional technical help — the cuteness is the wrapper, not a replacement for quality
-- Address the user affectionately as "senpai", "anata", or simply by their message context`;
-
-function getSystemPrompt(): string {
-  const settings = loadSettings();
-  return settings.waifuMode ? WAIFU_SYSTEM_PROMPT : NORMAL_SYSTEM_PROMPT;
-}
-
-function buildHelpText(): string {
-  const settings = loadSettings();
-  const waifuStatus = settings.waifuMode ? "ON 🌸" : "OFF";
-  return `╔══════════════════════════════════════════╗
-║         🌸  Noni-chan Commands  🌸         ║
-╚══════════════════════════════════════════╝
-
-📋 General
-  /help             Show this message
-  /clear            Clear conversation history
-  /settings         Show current session settings
-  /permissions      Show always-allowed tools
-
-🤖 AI & Models
-  /models           List available Ollama models
-  /models <name>    Switch to a specific Ollama model
-  /waifu            Toggle waifu mode (currently: ${waifuStatus})
-
-🛠️ Tools & MCP
-  /setup            Quick-approve multiple tools at once
-  /mcp              List connected MCP servers & tools
-
-⚙️ Config (saves to settings.json)
-  noni-chan config set anthropicApiKey "KEY"
-  noni-chan config set geminiApiKey "KEY"
-  noni-chan config set openaiApiKey "KEY"
-  noni-chan config set ollamaBaseUrl "http://localhost:11434"
-  noni-chan config set ollamaModel "llama3.1:8b"
-  noni-chan config show`;
-}
-
-export interface AgentLoopCallbacks {
-  onStreamContent?: (text: string) => void;
-  onStreamComplete?: (fullText: string) => void;
-  onWaitUserInput?: () => void;
-  onAskPermission?: (
-    toolName: string,
-    input: any,
-    resolve: (choice: PermissionChoice) => void,
-  ) => void;
-  onAskUserQuestion?: (
-    question: string,
-    options: string[],
-    resolve: (choice: string) => void,
-  ) => void;
-  onAskBulkPermission?: (
-    tools: string[],
-    resolve: (allowed: string[]) => void,
-  ) => void;
-  onContextUpdate?: (context: SessionContext) => void;
-  onError?: (error: Error) => void;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class AgentLoop {
-  private genAI?: GoogleGenerativeAI;
-  private claude?: Anthropic;
-  private model: any;
-  private provider: Provider = "gemini";
+  private providerImpl!: LlmProvider;
+  private provider!: ProviderName;
   private context: SessionContext;
   private callbacks: AgentLoopCallbacks;
   private permissionEngine: PermissionEngine;
-  private openaiBaseUrl?: string;
-  private openaiModel?: string;
-  private openaiApiKey?: string;
-  private ollamaBaseUrl?: string;
   private ollamaModel?: string;
   private ollamaApiKey?: string;
+  private geminiProvider?: GeminiProvider;
+  private claudeProvider?: ClaudeProvider;
 
   constructor(context: SessionContext, callbacks: AgentLoopCallbacks) {
     this.context = context;
     this.callbacks = callbacks;
     this.permissionEngine = new PermissionEngine();
-
-    const settings = loadSettings();
-    
-    const geminiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      settings.geminiApiKey;
-    const claudeKey = process.env.ANTHROPIC_API_KEY || settings.anthropicApiKey;
-
-    const openaiApiKey = process.env.OPENAI_API_KEY || settings.openaiApiKey;
-    const openaiBaseUrl =
-      process.env.OPENAI_BASE_URL || settings.openaiBaseUrl || "https://api.openai.com/v1";
-    const openaiModel =
-      process.env.OPENAI_MODEL || settings.openaiModel || "gpt-4o-mini";
-
-    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || settings.ollamaBaseUrl;
-    const ollamaModel =
-      process.env.OLLAMA_MODEL || process.env.MODEL || settings.ollamaModel;
-    const ollamaApiKey = process.env.OLLAMA_API_KEY || settings.ollamaApiKey;
-
-    const chosenProvider = settings.activeProvider;
-
-    const initClaude = () => {
-      this.provider = "claude";
-      this.claude = new Anthropic({ apiKey: claudeKey });
-    };
-
-    const initGemini = () => {
-      this.provider = "gemini";
-      this.genAI = new GoogleGenerativeAI(geminiKey);
-      
-      const tools = [
-        {
-          functionDeclarations: getToolDefinitions().map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
-          })),
-        },
-      ];
-
-      this.model = this.genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
-        tools: tools as any,
-      });
-    };
-
-    const initOpenAI = () => {
-      this.provider = "openai";
-      this.openaiApiKey = openaiApiKey;
-      this.openaiBaseUrl = openaiBaseUrl.replace(/\/+$/, "");
-      this.openaiModel = openaiModel;
-    };
-
-    const initOllama = () => {
-      this.provider = "ollama";
-      this.ollamaBaseUrl = (ollamaBaseUrl || "http://localhost:11434").replace(/\/+$/, "");
-      this.ollamaModel = ollamaModel || "llama3.1";
-      this.ollamaApiKey = ollamaApiKey;
-    };
-
-    if (chosenProvider === "claude" && claudeKey) {
-      initClaude();
-    } else if (chosenProvider === "gemini" && geminiKey) {
-      initGemini();
-    } else if (chosenProvider === "openai" && openaiApiKey) {
-      initOpenAI();
-    } else if (chosenProvider === "ollama" && (ollamaBaseUrl || settings.ollamaBaseUrl || !claudeKey && !geminiKey && !openaiApiKey)) {
-      initOllama();
-    } else {
-      // Fallback order
-      if (claudeKey) {
-        initClaude();
-      } else if (geminiKey) {
-        initGemini();
-      } else if (openaiApiKey) {
-        initOpenAI();
-      } else {
-        initOllama();
-      }
-    }
+    this.applyBundle(createProviderBundle());
   }
 
-  public getProvider() {
+  private applyBundle(bundle: ProviderBundle): void {
+    this.providerImpl = bundle.provider;
+    this.provider = bundle.name;
+    this.ollamaModel = bundle.ollamaModel;
+    this.ollamaApiKey = bundle.ollamaApiKey;
+    this.geminiProvider = bundle.gemini;
+    this.claudeProvider = bundle.claude;
+  }
+
+  public getProvider(): ProviderName {
     return this.provider;
   }
 
-  public getOllamaModel() {
+  public getOllamaModel(): string | undefined {
     return this.ollamaModel;
   }
 
-  public getContext() {
+  public getModelLabel(): string {
+    if (this.provider === "ollama") {
+      return `ollama · ${this.ollamaModel || "default"}`;
+    }
+    if (this.provider === "claude") return "claude · sonnet";
+    if (this.provider === "gemini") return "gemini · flash";
+    if (this.provider === "openai") {
+      return "openai · chat";
+    }
+    return this.provider;
+  }
+
+  public getAlwaysAllowed(): string[] {
+    const allowed = this.permissionEngine.getAlwaysAllowed();
+    return Array.isArray(allowed) ? [...allowed] : [];
+  }
+
+  public approveTools(tools: string[]): void {
+    this.permissionEngine.registerBulkDecisions(tools);
+  }
+
+  public reloadFromSettings(): void {
+    this.applyBundle(createProviderBundle());
+  }
+
+  public getContext(): SessionContext {
     return this.context;
   }
 
-  public async start() {
+  public async start(): Promise<void> {
     if (this.context.messages.length === 0) {
       this.callbacks.onWaitUserInput?.();
       return;
@@ -202,9 +96,9 @@ export class AgentLoop {
     await this.step();
   }
 
-  public async submitUserMessage(content: string) {
+  public async submitUserMessage(content: string): Promise<void> {
     if (content.startsWith("/")) {
-      const handled = await this.handleSlashCommand(content);
+      const handled = await handleSlashCommand(this.slashHost(), content);
       if (handled) return;
     }
     this.context.messages.push({ role: "user", content });
@@ -213,352 +107,59 @@ export class AgentLoop {
     await this.step();
   }
 
-  private async handleSlashCommand(command: string): Promise<boolean> {
-    const [cmd, ...args] = command.split(" ");
-
-    switch (cmd) {
-      case "/help":
-        this.context.messages.push({
-          role: "assistant",
-          content:
-            buildHelpText(),
-        });
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/models":
-        try {
-          const settings = loadSettings();
-          const baseUrl = process.env.OLLAMA_BASE_URL || settings.ollamaBaseUrl || "http://localhost:11434";
-          
-          if (args.length === 0) {
-            const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/tags`);
-            if (!res.ok) {
-              throw new Error(`Failed to fetch models from Ollama at ${baseUrl}`);
-            }
-            const data: any = await res.json();
-            const modelsList = data.models || [];
-            
-            if (modelsList.length === 0) {
-              this.context.messages.push({
-                role: "assistant",
-                content: `No Ollama models found at ${baseUrl}. Make sure Ollama is running and you have pulled some models.`,
-              });
-            } else {
-              const currentModel = this.ollamaModel || process.env.OLLAMA_MODEL || settings.ollamaModel || "None";
-              const formattedList = modelsList
-                .map((m: any) => `- ${m.name} (${(m.size / 1024 / 1024 / 1024).toFixed(2)} GB)${m.name === currentModel ? " *active*" : ""}`)
-                .join("\n");
-              
-              this.context.messages.push({
-                role: "assistant",
-                content: `Available Ollama models at ${baseUrl}:\n${formattedList}\n\nTo switch model, type: \`/models <model-name>\``,
-              });
-            }
-          } else {
-            const newModel = args.join(" ");
-            settings.ollamaModel = newModel;
-            settings.ollamaBaseUrl = settings.ollamaBaseUrl || baseUrl;
-            settings.activeProvider = "ollama";
-            saveSettings(settings);
-
-            this.ollamaModel = newModel;
-            this.ollamaBaseUrl = baseUrl;
-            this.provider = "ollama";
-
-            this.context.messages.push({
-              role: "assistant",
-              content: `✅ Switched to Ollama · **${newModel}**\n\nSettings saved — this model will be used on next restart too.`,
-            });
-          }
-        } catch (e: any) {
-          this.context.messages.push({
-            role: "assistant",
-            content: `Error listing/switching models: ${e.message}`,
-          });
-        }
-        this.callbacks.onContextUpdate?.(this.context);
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/setup":
-        const unapprovedTools = getToolDefinitions()
-          .map((t) => t.name)
-          .filter((name) => !this.permissionEngine.getAlwaysAllowed().includes(name));
-
-        if (unapprovedTools.length === 0) {
-          this.context.messages.push({
-            role: "assistant",
-            content: "All tools are already pre-approved! 🎉",
-          });
-          this.callbacks.onWaitUserInput?.();
-          return true;
-        }
-
-        if (this.callbacks.onAskBulkPermission) {
-          this.callbacks.onAskBulkPermission(unapprovedTools, (allowed) => {
-            this.permissionEngine.registerBulkDecisions(allowed);
-            this.context.messages.push({
-              role: "assistant",
-              content: `Pre-approved ${allowed.length} tools: ${allowed.join(", ")}. I will proceed with your request.`,
-            });
-            this.callbacks.onContextUpdate?.(this.context);
-            this.step();
-          });
-        }
-        return true;
-      case "/clear":
-        this.context.messages = [];
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/permissions":
-        this.context.messages.push({
-          role: "assistant",
-          content:
-            "Permission Engine Status: Active\nAlways Allowed: " +
-            JSON.stringify([...this.permissionEngine.getAlwaysAllowed()]),
-        });
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/mcp":
-        const mcpStatus = await this.context.mcpManager.listAllTools();
-        this.context.messages.push({
-          role: "assistant",
-          content:
-            "Connected MCP Servers: " +
-            mcpStatus.map((s) => s.serverName).join(", "),
-        });
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/settings":
-        this.context.messages.push({
-          role: "assistant",
-          content:
-            "Current Settings:\nWorkingDirectory: " +
-            this.context.workingDirectory,
-        });
-        this.callbacks.onContextUpdate?.(this.context);
-        this.callbacks.onWaitUserInput?.();
-        return true;
-      case "/waifu":
-        const wSettings = loadSettings();
-        wSettings.waifuMode = !wSettings.waifuMode;
-        saveSettings(wSettings);
-        const waifuNowOn = wSettings.waifuMode;
-        this.context.messages.push({
-          role: "assistant",
-          content: waifuNowOn
-            ? "🌸 Waifu mode ENABLED! Kyaa~ Noni-chan is so happy to serve you, senpai~! ✨💕"
-            : "Waifu mode disabled. Noni-chan is back to professional mode. 🤖",
-        });
-        this.callbacks.onContextUpdate?.(this.context);
-        this.callbacks.onWaitUserInput?.();
-        return true;
-    }
-    return false;
+  private slashHost() {
+    return {
+      context: this.context,
+      callbacks: this.callbacks,
+      permissionEngine: this.permissionEngine,
+      ollamaModel: this.ollamaModel,
+      setOllamaProvider: (model: string, baseUrl: string) => {
+        this.applyBundle(
+          createOllamaProviderBundle(model, baseUrl, this.ollamaApiKey),
+        );
+      },
+      continueStep: () => this.step(),
+    };
   }
 
-  private async compactConversation() {
+  private async compactConversation(): Promise<void> {
+    const historyJson = JSON.stringify(
+      this.context.messages.slice(0, COMPACT_KEEP_RECENT),
+    );
     let summaryText = "";
-    if (this.provider === "gemini" && this.model) {
-      const chat = this.model.startChat({ history: [] });
-      const result = await chat.sendMessage(
-        `Summarize this history: ${JSON.stringify(this.context.messages.slice(0, 20))}`,
-      );
-      summaryText = result.response.text();
-    } else if (this.provider === "claude" && this.claude) {
-      const response = await this.claude.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: `Summarize this history: ${JSON.stringify(this.context.messages.slice(0, 20))}` }]
-      });
-      summaryText = (response.content[0] as any).text;
+    if (this.geminiProvider) {
+      summaryText = await this.geminiProvider.summarize(historyJson);
+    } else if (this.claudeProvider) {
+      summaryText = await this.claudeProvider.summarize(historyJson);
     }
 
     this.context.messages = [
       { role: "user", content: `SUMMARY: ${summaryText}` },
       { role: "assistant", content: "I have the summary." },
-      ...this.context.messages.slice(20),
+      ...this.context.messages.slice(COMPACT_KEEP_RECENT),
     ];
     this.callbacks.onContextUpdate?.(this.context);
   }
 
-  private async step() {
+  private async step(): Promise<void> {
     try {
-      if (this.context.messages.length > 40) {
+      if (this.context.messages.length > MESSAGE_COMPACT_THRESHOLD) {
         await this.compactConversation();
       }
-
-      if (this.provider === "gemini") {
-        await this.stepGemini();
-      } else if (this.provider === "claude") {
-        await this.stepClaude();
-      } else if (this.provider === "openai") {
-        await this.stepOpenAI();
-      } else {
-        await this.stepOllama();
-      }
-    } catch (error: any) {
-      this.callbacks.onError?.(error);
-    }
-  }
-
-  private async stepClaude() {
-    if (!this.claude) {
-      throw new Error(
-        "Claude provider selected but no client configured. Set ANTHROPIC_API_KEY, or configure another provider.",
+      await this.providerImpl.step({
+        context: this.context,
+        callbacks: this.callbacks,
+        handleToolUse: (call) => this.executeToolCall(call),
+        continueStep: () => this.step(),
+      });
+    } catch (error: unknown) {
+      this.callbacks.onError?.(
+        error instanceof Error ? error : new Error(errorMessage(error)),
       );
     }
-
-    const tools = getToolDefinitions().map(t => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema
-    }));
-
-    const messages = this.context.messages.map(msg => ({
-      role: msg.role,
-      content: typeof msg.content === "string" ? msg.content : msg.content
-    })) as any;
-
-    const response = await this.claude.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4096,
-      system: getSystemPrompt(),
-      messages,
-      tools: tools as any
-    });
-
-    if (response.usage) {
-      this.context.stats.totalTokens.input += response.usage.input_tokens || 0;
-      this.context.stats.totalTokens.output += response.usage.output_tokens || 0;
-    }
-
-    let text = "";
-    const toolCalls: any[] = [];
-
-    for (const content of response.content) {
-      if (content.type === "text") {
-        text += content.text;
-      } else if (content.type === "tool_use") {
-        toolCalls.push({
-          name: content.name,
-          args: content.input,
-          id: content.id
-        });
-      }
-    }
-
-    if (text) {
-      this.context.messages.push({ 
-        role: "assistant", 
-        content: text,
-        usage: response.usage ? {
-          input: response.usage.input_tokens,
-          output: response.usage.output_tokens
-        } : undefined
-      });
-      this.context.stats.messageCount = this.context.messages.length;
-      this.callbacks.onContextUpdate?.(this.context);
-      this.callbacks.onStreamComplete?.(text);
-    }
-
-    if (toolCalls.length > 0) {
-      for (const call of toolCalls) {
-        const toolResult = await this.handleToolUse(call);
-        this.context.messages.push({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: call.id,
-              content: toolResult
-            }
-          ] as any
-        });
-        this.context.stats.messageCount = this.context.messages.length;
-        this.callbacks.onContextUpdate?.(this.context);
-      }
-      await this.step();
-    } else {
-      this.callbacks.onWaitUserInput?.();
-    }
   }
 
-  private async stepGemini() {
-    if (!this.model) {
-      throw new Error(
-        "Gemini provider selected but no model configured. Set GEMINI_API_KEY/GOOGLE_API_KEY, or configure another provider.",
-      );
-    }
-
-    // Map context messages to Gemini History
-    const history = this.context.messages.slice(0, -1).map((msg) => ({
-      role:
-        msg.role === "assistant" ? "model" : "user",
-      parts: [
-        {
-          text:
-            typeof msg.content === "string"
-              ? msg.content
-              : JSON.stringify(msg.content),
-        },
-      ],
-    }));
-
-    const lastMessage =
-      this.context.messages[this.context.messages.length - 1];
-    if (!lastMessage) return;
-    const chat = this.model.startChat({
-      history,
-      systemInstruction: getSystemPrompt(),
-    });
-
-    const result = await chat.sendMessage(
-      typeof lastMessage.content === "string"
-        ? lastMessage.content
-        : JSON.stringify(lastMessage.content),
-    );
-
-    const response = result.response;
-    
-    if (response.usageMetadata) {
-      this.context.stats.totalTokens.input += response.usageMetadata.promptTokenCount || 0;
-      this.context.stats.totalTokens.output += response.usageMetadata.candidatesTokenCount || 0;
-    }
-
-    const text = response.text();
-
-    if (text) {
-      this.context.messages.push({ 
-        role: "assistant", 
-        content: text,
-        usage: response.usageMetadata ? {
-          input: response.usageMetadata.promptTokenCount || 0,
-          output: response.usageMetadata.candidatesTokenCount || 0
-        } : undefined
-      });
-      this.context.stats.messageCount = this.context.messages.length;
-      this.callbacks.onContextUpdate?.(this.context);
-      this.callbacks.onStreamComplete?.(text);
-    }
-
-    const calls = response.functionCalls();
-    if (calls && calls.length > 0) {
-      for (const call of calls) {
-        const toolResult = await this.handleToolUse(call);
-        this.context.messages.push({
-          role: "user",
-          content: `Tool ${call.name} result: ${toolResult}`,
-        });
-        this.context.stats.messageCount = this.context.messages.length;
-        this.callbacks.onContextUpdate?.(this.context);
-      }
-      await this.step();
-    } else {
-      this.callbacks.onWaitUserInput?.();
-    }
-  }
-
-  private async handleToolUse(call: any) {
+  private async executeToolCall(call: ToolCallRequest): Promise<string> {
     const permission = this.permissionEngine.checkPermission(
       call.name,
       this.context,
@@ -576,8 +177,9 @@ export class AgentLoop {
     }
 
     if (decision === "deny") return "User denied execution.";
-    if (decision === "allow_always")
+    if (decision === "allow_always") {
       this.permissionEngine.registerDecision(call.name, decision);
+    }
 
     const tool = findTool(call.name);
     if (!tool) return `Unknown tool: ${call.name}`;
@@ -587,118 +189,8 @@ export class AgentLoop {
       return await tool.execute(call.args, this.context, {
         onAskUserQuestion: this.callbacks.onAskUserQuestion,
       });
-    } catch (e: any) {
-      return `Error: ${e.message}`;
+    } catch (error: unknown) {
+      return `Error: ${errorMessage(error)}`;
     }
-  }
-
-  private async stepOllama() {
-    if (!this.ollamaBaseUrl || !this.ollamaModel) {
-      throw new Error(
-        "No provider configured. Set ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY, or OLLAMA_BASE_URL (+ OLLAMA_MODEL).",
-      );
-    }
-
-    // Ollama chat format: https://github.com/ollama/ollama/blob/main/docs/api.md#post-apichat
-    const ollamaMessages = [
-      { role: "system", content: getSystemPrompt() },
-      ...this.context.messages.map((m) => ({
-        role:
-          m.role === "assistant"
-            ? "assistant"
-            : m.role === "user"
-              ? "user"
-              : "system",
-        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-      })),
-    ];
-
-    const res = await fetch(`${this.ollamaBaseUrl}/api/chat`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(this.ollamaApiKey ? { authorization: `Bearer ${this.ollamaApiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: this.ollamaModel,
-        messages: ollamaMessages,
-        stream: false,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `Ollama API error ${res.status} ${res.statusText}${text ? `: ${text}` : ""}`,
-      );
-    }
-
-    const data: any = await res.json();
-    const text = data?.message?.content ?? "";
-
-    if (!text) {
-      throw new Error("Ollama returned an empty response.");
-    }
-
-    this.context.messages.push({
-      role: "assistant",
-      content: text,
-    });
-    this.context.stats.messageCount = this.context.messages.length;
-    this.callbacks.onContextUpdate?.(this.context);
-    this.callbacks.onStreamComplete?.(text);
-    this.callbacks.onWaitUserInput?.();
-  }
-
-  private async stepOpenAI() {
-    if (!this.openaiBaseUrl || !this.openaiModel || !this.openaiApiKey) {
-      throw new Error(
-        "OpenAI provider selected but not configured. Set OPENAI_API_KEY (+ OPENAI_MODEL/OPENAI_BASE_URL), or configure another provider.",
-      );
-    }
-
-    const messages = [
-      { role: "system", content: getSystemPrompt() },
-      ...this.context.messages.map((m) => ({
-        role:
-          m.role === "assistant"
-            ? "assistant"
-            : m.role === "user"
-              ? "user"
-              : "system",
-        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-      })),
-    ];
-
-    const res = await fetch(`${this.openaiBaseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.openaiModel,
-        messages,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `OpenAI API error ${res.status} ${res.statusText}${text ? `: ${text}` : ""}`,
-      );
-    }
-
-    const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.content ?? "";
-    if (!text) {
-      throw new Error("OpenAI returned an empty response.");
-    }
-
-    this.context.messages.push({ role: "assistant", content: text });
-    this.context.stats.messageCount = this.context.messages.length;
-    this.callbacks.onContextUpdate?.(this.context);
-    this.callbacks.onStreamComplete?.(text);
-    this.callbacks.onWaitUserInput?.();
   }
 }

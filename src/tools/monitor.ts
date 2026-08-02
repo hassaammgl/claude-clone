@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
-import { ToolDefinition } from "./types.ts";
-import { SessionContext } from "../agent/context.ts";
+import type { ToolDefinition } from "./types.ts";
+import type { SessionContext } from "../agent/context.ts";
 
 export const monitorTool: ToolDefinition = {
   name: "monitor",

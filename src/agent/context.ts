@@ -1,9 +1,13 @@
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages.mjs";
 import type { ScheduledTask } from "node-cron";
+import type { ChildProcess } from "child_process";
 import { McpManager } from "../mcp/client.ts";
 import fs from "fs";
 import path from "path";
 import { loadSettings } from "../config/settings";
+import type { Message } from "./messages";
+import { loadSessionForCwd } from "./session-store";
+
+export type { Message } from "./messages";
 
 export interface Task {
   id: string;
@@ -18,6 +22,21 @@ export interface CronJob {
   task: ScheduledTask;
 }
 
+export interface MonitorState {
+  id: string;
+  command: string;
+  pattern: RegExp;
+  triggered: boolean;
+  lastMatch: string;
+  output: string;
+  pid?: number;
+}
+
+export interface BackgroundProcess {
+  child: ChildProcess;
+  state: MonitorState;
+}
+
 export interface SessionStats {
   startTime: number;
   totalTokens: {
@@ -26,13 +45,6 @@ export interface SessionStats {
   };
   messageCount: number;
   toolCallCount: number;
-}
-
-export interface Message extends MessageParam {
-  usage?: {
-    input: number;
-    output: number;
-  };
 }
 
 export interface SessionContext {
@@ -45,7 +57,7 @@ export interface SessionContext {
   planMode: boolean;
   plan: string;
   mcpManager: McpManager;
-  backgroundProcesses: Map<string, any>;
+  backgroundProcesses: Map<string, BackgroundProcess>;
   stats: SessionStats;
 }
 
@@ -71,10 +83,9 @@ function buildStartupWelcome(): string {
 Type your question or command to get started!`;
 }
 
-export function createContext(initialPrompt?: string): SessionContext {
-  const messages: MessageParam[] = [];
+function freshContext(initialPrompt?: string): SessionContext {
+  const messages: Message[] = [];
 
-  // Show startup welcome with all commands
   messages.push({
     role: "user",
     content: "__startup__",
@@ -84,21 +95,21 @@ export function createContext(initialPrompt?: string): SessionContext {
     content: buildStartupWelcome(),
   });
 
-  // Load CLAUDE.md if it exists in the current directory
   const claudeMdPath = path.join(process.cwd(), "CLAUDE.md");
   if (fs.existsSync(claudeMdPath)) {
     try {
       const content = fs.readFileSync(claudeMdPath, "utf-8");
-      messages.push({ 
-        role: "user", 
-        content: `CONTEXT (CLAUDE.md):\n\n${content}` 
+      messages.push({
+        role: "user",
+        content: `CONTEXT (CLAUDE.md):\n\n${content}`,
       });
       messages.push({
         role: "assistant",
-        content: "I have read CLAUDE.md and will follow the project-specific instructions provided."
+        content:
+          "I have read CLAUDE.md and will follow the project-specific instructions provided.",
       });
-    } catch (e) {
-      console.error("Error reading CLAUDE.md:", e);
+    } catch (error: unknown) {
+      console.error("Error reading CLAUDE.md:", error);
     }
   }
 
@@ -121,7 +132,41 @@ export function createContext(initialPrompt?: string): SessionContext {
       startTime: Date.now(),
       totalTokens: { input: 0, output: 0 },
       messageCount: messages.length,
-      toolCallCount: 0
-    }
+      toolCallCount: 0,
+    },
   };
+}
+
+export function createContext(
+  initialPrompt?: string,
+  options?: { resume?: boolean },
+): SessionContext {
+  const resume = options?.resume !== false;
+  const cwd = process.cwd();
+
+  if (resume && !initialPrompt) {
+    const stored = loadSessionForCwd(cwd);
+    if (stored && stored.messages.length > 0) {
+      return {
+        sessionId: stored.sessionId,
+        workingDirectory: cwd,
+        previousWorkingDirectory: cwd,
+        messages: stored.messages,
+        tasks: stored.tasks || [],
+        cronJobs: new Map(),
+        planMode: stored.planMode || false,
+        plan: stored.plan || "",
+        mcpManager: new McpManager(),
+        backgroundProcesses: new Map(),
+        stats: {
+          startTime: stored.stats?.startTime || Date.now(),
+          totalTokens: stored.stats?.totalTokens || { input: 0, output: 0 },
+          messageCount: stored.messages.length,
+          toolCallCount: stored.stats?.toolCallCount || 0,
+        },
+      };
+    }
+  }
+
+  return freshContext(initialPrompt);
 }

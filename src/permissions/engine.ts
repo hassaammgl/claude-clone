@@ -1,89 +1,75 @@
-import fs from "fs";
-import path from "path";
-import { getConfigDir } from "../config/paths";
+import { loadSettings, saveSettings } from "../config/settings";
 
 export type PermissionResult = "allow" | "deny" | "ask";
 export type PermissionChoice = "allow_once" | "allow_always" | "deny";
 
-interface Settings {
-  allowedTools: string[];
+const PLAN_MODE_BLOCKED = ["write_file", "edit_file", "bash", "cron_start"];
+
+function readAllowedTools(): string[] {
+  const settings = loadSettings() as {
+    globalPermissions?: string[];
+    allowedTools?: string[];
+  };
+  const fromGlobal = settings.globalPermissions;
+  const fromLegacy = settings.allowedTools;
+  if (Array.isArray(fromGlobal) && fromGlobal.length > 0) {
+    return [...fromGlobal];
+  }
+  if (Array.isArray(fromLegacy)) {
+    return [...fromLegacy];
+  }
+  if (Array.isArray(fromGlobal)) {
+    return [...fromGlobal];
+  }
+  return [];
 }
 
 export class PermissionEngine {
-  private settingsPath: string;
-  private settings: Settings;
+  private allowedTools: string[];
 
   constructor() {
-    const configDir = getConfigDir();
-    this.settingsPath = path.join(configDir, "settings.json");
-    
-    // Ensure config directory exists
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
-    }
-
-    this.settings = this.loadSettings();
+    this.allowedTools = readAllowedTools();
   }
 
-  private loadSettings(): Settings {
-    try {
-      if (fs.existsSync(this.settingsPath)) {
-        const data = fs.readFileSync(this.settingsPath, "utf-8");
-        return JSON.parse(data);
-      }
-    } catch (error) {
-      console.error("Failed to load settings:", error);
-    }
-    return { allowedTools: [] };
+  private persist(): void {
+    const settings = loadSettings();
+    settings.globalPermissions = [...this.allowedTools];
+    saveSettings(settings);
   }
 
-  private saveSettings() {
-    try {
-      fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 2), "utf-8");
-    } catch (error) {
-      console.error("Failed to save settings:", error);
+  public checkPermission(
+    toolName: string,
+    context?: { planMode?: boolean },
+  ): PermissionResult {
+    if (context?.planMode && PLAN_MODE_BLOCKED.includes(toolName)) {
+      return "deny";
     }
-  }
-
-  public checkPermission(toolName: string, context?: { planMode?: boolean }): PermissionResult {
-    // Auto-deny destructive tools while in plan mode
-    if (context?.planMode) {
-      const planModeBlocked = ["write_file", "edit_file", "bash", "cron_start"];
-      if (planModeBlocked.includes(toolName)) {
-        return "deny";
-      }
-    }
-
-    // If already approved, allow it
-    if (this.settings.allowedTools.includes(toolName)) {
+    if (this.allowedTools.includes(toolName)) {
       return "allow";
     }
     return "ask";
   }
 
-  public registerDecision(toolName: string, decision: PermissionChoice) {
-    if (decision === "allow_always") {
-      if (!this.settings.allowedTools.includes(toolName)) {
-        this.settings.allowedTools.push(toolName);
-        this.saveSettings();
-      }
-    }
+  public registerDecision(toolName: string, decision: PermissionChoice): void {
+    if (decision !== "allow_always") return;
+    if (this.allowedTools.includes(toolName)) return;
+    this.allowedTools.push(toolName);
+    this.persist();
   }
 
-  public registerBulkDecisions(toolNames: string[]) {
+  public registerBulkDecisions(toolNames: string[]): void {
     let changed = false;
     for (const name of toolNames) {
-      if (!this.settings.allowedTools.includes(name)) {
-        this.settings.allowedTools.push(name);
-        changed = true;
-      }
+      if (this.allowedTools.includes(name)) continue;
+      this.allowedTools.push(name);
+      changed = true;
     }
     if (changed) {
-      this.saveSettings();
+      this.persist();
     }
   }
 
   public getAlwaysAllowed(): string[] {
-    return this.settings.allowedTools;
+    return [...this.allowedTools];
   }
 }

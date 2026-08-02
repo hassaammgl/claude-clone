@@ -14,7 +14,7 @@ const program = new Command();
 program.name("noni-chan").description("Agentic Coding CLI (Noni-chan CLI)");
 program.addHelpText(
   "after",
-  `\nExamples:\n  noni-chan config set anthropicApiKey "YOUR_ANTHROPIC_KEY"\n  noni-chan config set geminiApiKey "YOUR_GEMINI_KEY"\n  noni-chan config set openaiApiKey "YOUR_OPENAI_KEY"\n  noni-chan config set openaiModel "gpt-4o-mini"\n  noni-chan config set ollamaBaseUrl "https://your-ollama-host.example.com"\n  noni-chan config set ollamaModel "llama3.1:8b"\n\n  noni-chan config show\n  noni-chan --headless "Hello"\n`,
+  `\nExamples:\n  noni-chan config set anthropicApiKey "YOUR_ANTHROPIC_KEY"\n  noni-chan config set geminiApiKey "YOUR_GEMINI_KEY"\n  noni-chan config set openaiApiKey "YOUR_OPENAI_KEY"\n  noni-chan config set openaiModel "gpt-4o-mini"\n  noni-chan config set ollamaBaseUrl "https://your-ollama-host.example.com"\n  noni-chan config set ollamaModel "llama3.2:3b"\n  noni-chan config set ollamaToolMode "prompt"\n\n  noni-chan config show\n  noni-chan --headless "Hello"\n`,
 );
 
 const configCmd = program

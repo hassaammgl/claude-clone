@@ -7,6 +7,10 @@ import path from "path";
  * - Windows: %APPDATA%\noni-chan
  * - macOS:   ~/Library/Application Support/noni-chan
  * - Linux:   $XDG_CONFIG_HOME/noni-chan or ~/.config/noni-chan
+ *
+ * Layout:
+ *   settings.json
+ *   sessions/<cwd-hash>.json   ← persistent chat memory per project folder
  */
 export function getConfigDir(): string {
   if (process.platform === "win32") {

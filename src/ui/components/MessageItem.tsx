@@ -1,5 +1,7 @@
 import { Box, Text } from "ink";
 import Markdown from "ink-markdown-es";
+import { theme } from "../theme";
+import { BlinkCaret, Spinner } from "./Motion";
 
 export type MessageType =
   | "user"
@@ -16,56 +18,65 @@ interface MessageItemProps {
   isStreaming?: boolean;
 }
 
+function markerFor(type: MessageType): { glyph: string; color: string } {
+  switch (type) {
+    case "user":
+      return { glyph: "❯", color: theme.brand };
+    case "action":
+      return { glyph: "→", color: theme.accent };
+    case "thought":
+      return { glyph: "+", color: theme.yellow };
+    case "error":
+      return { glyph: "✕", color: theme.error };
+    default:
+      return { glyph: "◆", color: theme.green };
+  }
+}
+
 export const MessageItem = ({
   type,
   content,
   label,
-  // isStreaming,
+  isStreaming,
 }: MessageItemProps) => {
-  const getIcon = () => {
-    switch (type) {
-      case "user":
-        return "🌸 ";
-      case "thought":
-        return "● ";
-      case "action":
-        return "⚡ ";
-      case "error":
-        return "💀 ";
-      default:
-        return "";
-    }
-  };
-
-  const getIconColor = () => {
-    switch (type) {
-      case "user":
-        return "blue";
-      case "thought":
-        return "red";
-      case "action":
-        return "yellow";
-      case "error":
-        return "red";
-      default:
-        return "gray";
-    }
-  };
+  const marker = markerFor(type);
+  const showSpinner = type === "action";
 
   return (
-    <Box flexDirection="column" marginBottom={1} width="100%">
-      <Box flexDirection="row" width="100%">
-        <Text color={getIconColor()} bold>
-          {getIcon()}
-        </Text>
-        {label && (
-          <Text color={getIconColor()} bold wrap="truncate">
-            {label}:
+    <Box
+      flexDirection="column"
+      marginBottom={1}
+      width="100%"
+      backgroundColor={theme.bg}
+    >
+      <Box flexDirection="row" backgroundColor={theme.bg}>
+        {showSpinner ? (
+          <>
+            <Spinner active color={theme.accent} backgroundColor={theme.bg} />
+            <Text backgroundColor={theme.bg}> </Text>
+          </>
+        ) : (
+          <Text color={marker.color} bold backgroundColor={theme.bg}>
+            {marker.glyph}{" "}
           </Text>
         )}
-        <Box flexGrow={1}>
-          <Markdown>{content}</Markdown>
-        </Box>
+        {label ? (
+          <Text color={marker.color} bold backgroundColor={theme.bg}>
+            {label}{" "}
+          </Text>
+        ) : null}
+        {type === "user" ? (
+          <Text color={theme.cream} backgroundColor={theme.bg}>
+            {content}
+          </Text>
+        ) : (
+          <Box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
+            <Markdown>{content}</Markdown>
+            {isStreaming ? (
+              <BlinkCaret active backgroundColor={theme.bg} />
+            ) : null}
+          </Box>
+        )}
       </Box>
     </Box>
   );

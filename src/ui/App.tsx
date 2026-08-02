@@ -1,192 +1,292 @@
-import { useState, useEffect, useRef } from "react";
-import { Box, Text } from "ink";
+import { useState } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
 import { Header } from "./components/Header";
 import { MessageLog } from "./components/MessageLog";
 import { InputArea } from "./components/InputArea";
-import { AgentLoop } from "../agent/loop";
-import { createContext } from "../agent/context";
-import type { SessionStats } from "../agent/context";
-import { execSync } from "child_process";
-import { allTools } from "../tools/index";
-import type { PermissionChoice } from "../permissions/engine";
+import { StatusBar } from "./components/StatusBar";
+import { Sidebar } from "./components/Sidebar";
+import { FileTree } from "./components/FileTree";
+import { SettingsPanel } from "./components/SettingsPanel";
+import type { SettingsScreen } from "./components/SettingsBody";
+import {
+  PermissionPrompt,
+  QuestionPrompt,
+  BulkPermissionPrompt,
+} from "./components/PermissionPrompt";
+import { theme } from "./theme";
+import { useAgentSession } from "./useAgentSession";
+import { version as appVersion } from "../../package.json";
+import { ThinkingLabel } from "./components/Motion";
+import { MouseProvider } from "./mouse/MouseContext";
+import { looksLikeMouseLeak } from "./mouse/parse";
 
 interface AppProps {
   initialPrompt?: string;
 }
 
+/** Fixed pane sizes — must sum with chat to exactly `cols`. */
+const FILE_TREE_WIDTH = 26;
+const CONTEXT_WIDTH = 22;
+const STATUS_HEIGHT = 1;
+const HEADER_HEIGHT = 1;
+const INPUT_HEIGHT = 3;
+
+type FocusPane = "files" | "chat";
+
+function layoutFor(cols: number): {
+  showFiles: boolean;
+  showContext: boolean;
+  fileW: number;
+  ctxW: number;
+  chatW: number;
+} {
+  // Prefer Files over Context when space is tight.
+  if (cols >= 110) {
+    return {
+      showFiles: true,
+      showContext: true,
+      fileW: FILE_TREE_WIDTH,
+      ctxW: CONTEXT_WIDTH,
+      chatW: cols - FILE_TREE_WIDTH - CONTEXT_WIDTH,
+    };
+  }
+  if (cols >= 72) {
+    return {
+      showFiles: true,
+      showContext: false,
+      fileW: FILE_TREE_WIDTH,
+      ctxW: 0,
+      chatW: cols - FILE_TREE_WIDTH,
+    };
+  }
+  return {
+    showFiles: false,
+    showContext: false,
+    fileW: 0,
+    ctxW: 0,
+    chatW: cols,
+  };
+}
+
 const App = ({ initialPrompt }: AppProps) => {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [isWaitingInput, setIsWaitingInput] = useState(true);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [permissionRequest, setPermissionRequest] = useState<{
-    toolName: string;
-    input: any;
-    resolve: (choice: PermissionChoice) => void;
-  } | null>(null);
-  const [questionRequest, setQuestionRequest] = useState<{
-    question: string;
-    options: string[];
-    resolve: (choice: string) => void;
-  } | null>(null);
-  const [bulkPermissionRequest, setBulkPermissionRequest] = useState<{
-    tools: string[];
-    resolve: (allowed: string[]) => void;
-  } | null>(null);
-  const [provider, setProvider] = useState<string>("detecting...");
-  const [stats, setStats] = useState<SessionStats | null>(null);
-  const [gitBranch, setGitBranch] = useState<string>("");
-  const [duration, setDuration] = useState<string>("00:00:00");
+  const [settingsScreen, setSettingsScreen] = useState<SettingsScreen | null>(
+    null,
+  );
+  const [focus, setFocus] = useState<FocusPane>("chat");
+  const session = useAgentSession(initialPrompt);
+  const { stdout } = useStdout();
+  const cols = stdout?.columns || process.stdout.columns || 100;
+  const rows = stdout?.rows || process.stdout.rows || 40;
+  const { showFiles, showContext, fileW, ctxW, chatW } = layoutFor(cols);
+  const tokens = session.stats?.totalTokens || { input: 0, output: 0 };
+  const cwd = process.cwd();
 
-  const loopRef = useRef<AgentLoop | null>(null);
+  const mainHeight = Math.max(10, rows - STATUS_HEIGHT);
+  const overlayOpen =
+    settingsScreen !== null ||
+    !!session.permissionRequest ||
+    !!session.questionRequest ||
+    !!session.bulkPermissionRequest;
 
-  useEffect(() => {
-    const context = createContext(initialPrompt);
-    setMessages([...context.messages]);
+  const bottomReserved =
+    INPUT_HEIGHT + (session.isWaitingInput || overlayOpen ? 0 : 1);
+  const messageHeight = Math.max(
+    5,
+    mainHeight - HEADER_HEIGHT - bottomReserved - (overlayOpen ? 6 : 0),
+  );
 
-    const loop = new AgentLoop(context, {
-      onStreamContent: (text) => setStreamingContent(text),
-      onStreamComplete: () => setStreamingContent(""),
-      onContextUpdate: (newContext) => {
-        setMessages([...newContext.messages]);
-        setStats({ ...newContext.stats });
-      },
-      onWaitUserInput: () => setIsWaitingInput(true),
-      onAskPermission: (toolName, input, resolve) => {
-        setPermissionRequest({ toolName, input, resolve });
-        setIsWaitingInput(false);
-      },
-      onAskUserQuestion: (question, options, resolve) => {
-        setQuestionRequest({ question, options, resolve });
-        setIsWaitingInput(false);
-      },
-      onAskBulkPermission: (tools, resolve) => {
-        setBulkPermissionRequest({ tools, resolve });
-        setIsWaitingInput(false);
-      },
-      onError: (err) => {
-        setMessages((prev) => [
-          ...prev,
-          { role: "error", content: err.message },
-        ]);
-        setIsWaitingInput(true);
-      },
-    });
-
-    loopRef.current = loop;
-    setProvider(
-      loop.getProvider() === "claude"
-        ? "Claude 3.5 Sonnet"
-        : "Gemini 2.0 Flash",
-    );
-    setStats({ ...context.stats });
-
-    try {
-      const branch = execSync("git branch --show-current", {
-        encoding: "utf8",
-      }).trim();
-      setGitBranch(branch);
-    } catch (e) {
-      setGitBranch("n/a");
+  useInput((input, key) => {
+    if (looksLikeMouseLeak(input)) return;
+    if (!key.tab) return;
+    if (!showFiles) {
+      setFocus("chat");
+      return;
     }
-
-    if (initialPrompt) {
-      setIsWaitingInput(false);
-      loop.start();
-    }
-
-    const timer = setInterval(() => {
-      if (context.stats) {
-        const diff = Date.now() - context.stats.startTime;
-        const h = Math.floor(diff / 3600000)
-          .toString()
-          .padStart(2, "0");
-        const m = Math.floor((diff % 3600000) / 60000)
-          .toString()
-          .padStart(2, "0");
-        const s = Math.floor((diff % 60000) / 1000)
-          .toString()
-          .padStart(2, "0");
-        setDuration(`${h}:${m}:${s}`);
-      }
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [initialPrompt]);
+    setFocus((prev) => (prev === "files" ? "chat" : "files"));
+  });
 
   const handleSubmit = (value: string) => {
-    if (!value.trim() || !loopRef.current) return;
-    setIsWaitingInput(false);
-    loopRef.current.submitUserMessage(value);
+    const trimmed = value.trim();
+    if (!trimmed || !session.loopRef.current) return;
+    if (trimmed === "/settings" || trimmed === "/config") {
+      setSettingsScreen("menu");
+      return;
+    }
+    if (trimmed === "/setup") {
+      setSettingsScreen("setup");
+      return;
+    }
+    session.setIsWaitingInput(false);
+    setFocus("chat");
+    void session.loopRef.current.submitUserMessage(trimmed);
   };
 
-  const handlePermissionDecision = (decision: PermissionChoice) => {
-    if (!permissionRequest) return;
-    const { resolve } = permissionRequest;
-    setPermissionRequest(null);
-    resolve(decision);
+  const filesHit = showFiles
+    ? { x: 0, y: 0, width: fileW, height: mainHeight }
+    : undefined;
+  const chatHit = {
+    x: showFiles ? fileW : 0,
+    y: HEADER_HEIGHT,
+    width: chatW,
+    height: messageHeight,
   };
 
   return (
-    <Box flexDirection="column" flexGrow={1} width="100%" padding={1}>
-      <Header
-        userName="Developer"
-        version="v3.5.0"
-        modelInfo={`${provider} · ${duration}`}
-        currentPath={String(process.cwd())}
-      />
+    <MouseProvider>
+    <Box
+      flexDirection="column"
+      width={cols}
+      height={rows}
+      overflow="hidden"
+      backgroundColor={theme.bg}
+    >
+      <Box
+        flexDirection="row"
+        width={cols}
+        height={mainHeight}
+        overflow="hidden"
+        backgroundColor={theme.bg}
+      >
+        {showFiles && (
+          <FileTree
+            cwd={cwd}
+            width={fileW}
+            height={mainHeight}
+            focused={focus === "files"}
+            hitRect={filesHit}
+            onMouseFocus={() => {
+              if (!overlayOpen) setFocus("files");
+            }}
+          />
+        )}
 
-      <MessageLog messages={messages} streamingContent={streamingContent} />
-
-      {permissionRequest && (
         <Box
           flexDirection="column"
-          borderStyle="round"
-          borderColor="yellow"
-          padding={1}
+          width={chatW}
+          height={mainHeight}
+          paddingX={1}
+          overflow="hidden"
+          backgroundColor={theme.bg}
         >
-          <Text bold color="yellow">
-            ⚠️ Permission Required for: {permissionRequest.toolName}
-          </Text>
-          <Text color="gray">
-            Input: {JSON.stringify(permissionRequest.input)}
-          </Text>
-          <Box marginTop={1}>
-            <Text color="yellow">
-              Type [1] Allow once | [2] Allow always | [3] Deny:{" "}
-            </Text>
-            <InputArea
-              onSubmit={(val) => {
-                if (val === "1") handlePermissionDecision("allow_once");
-                else if (val === "2") handlePermissionDecision("allow_always");
-                else handlePermissionDecision("deny");
+          <Header
+            modelLabel={session.modelLabel}
+            busy={!session.isWaitingInput && !overlayOpen}
+          />
+
+          <MessageLog
+            messages={session.messages}
+            streamingContent={session.streamingContent}
+            height={messageHeight}
+            focused={focus === "chat" && !overlayOpen}
+            inputActive={session.isWaitingInput && focus === "chat"}
+            hitRect={chatHit}
+            onMouseFocus={() => {
+              if (!overlayOpen) setFocus("chat");
+            }}
+          />
+
+          {session.permissionRequest && (
+            <PermissionPrompt
+              toolName={session.permissionRequest.toolName}
+              input={session.permissionRequest.input}
+              onDecide={(choice) => {
+                session.permissionRequest?.resolve(choice);
+                session.setPermissionRequest(null);
               }}
             />
-          </Box>
+          )}
+
+          {session.questionRequest && (
+            <QuestionPrompt
+              question={session.questionRequest.question}
+              options={session.questionRequest.options}
+              onChoose={(choice) => {
+                session.questionRequest?.resolve(choice);
+                session.setQuestionRequest(null);
+                session.setIsWaitingInput(true);
+              }}
+            />
+          )}
+
+          {session.bulkPermissionRequest && (
+            <BulkPermissionPrompt
+              tools={session.bulkPermissionRequest.tools}
+              onResolve={(allowed) => {
+                session.bulkPermissionRequest?.resolve(allowed);
+                session.setBulkPermissionRequest(null);
+                if (session.loopRef.current) {
+                  session.setAlwaysAllowed(
+                    session.loopRef.current.getAlwaysAllowed(),
+                  );
+                }
+                session.setIsWaitingInput(true);
+              }}
+            />
+          )}
+
+          {settingsScreen && session.loopRef.current && (
+            <SettingsPanel
+              initialScreen={settingsScreen}
+              alwaysAllowed={session.alwaysAllowed}
+              onClose={() => setSettingsScreen(null)}
+              onReloadAgent={() => {
+                session.loopRef.current?.reloadFromSettings();
+                if (session.loopRef.current) {
+                  session.syncAgentMeta(session.loopRef.current);
+                }
+              }}
+              onApproveTools={(tools) => {
+                session.loopRef.current?.approveTools(tools);
+                if (session.loopRef.current) {
+                  session.setAlwaysAllowed(
+                    session.loopRef.current.getAlwaysAllowed(),
+                  );
+                }
+              }}
+            />
+          )}
+
+          {session.isWaitingInput && !overlayOpen && focus === "chat" && (
+            <InputArea onSubmit={handleSubmit} />
+          )}
+
+          {session.isWaitingInput && !overlayOpen && focus === "files" && (
+            <Box marginTop={1} backgroundColor={theme.bg}>
+              <Text color={theme.dim} backgroundColor={theme.bg}>
+                Files focused · tab → chat
+              </Text>
+            </Box>
+          )}
+
+          {!session.isWaitingInput && !overlayOpen && (
+            <Box marginTop={1} backgroundColor={theme.bg}>
+              <ThinkingLabel active backgroundColor={theme.bg} />
+            </Box>
+          )}
         </Box>
-      )}
 
-      {isWaitingInput && !permissionRequest && (
-        <InputArea
-          onSubmit={handleSubmit}
-          isBusy={false}
-          statusText="Give a command to Noni-chan"
-        />
-      )}
-
-      {!isWaitingInput && !permissionRequest && (
-        <Box padding={1}>
-          <Text color="red" italic>
-            Noni-chan is working on it...
-          </Text>
-        </Box>
-      )}
-
-      <Box paddingLeft={1} marginTop={0} width="100%">
-        <Text color="gray">
-          Tools: {String(allTools.length)} | Branch: {gitBranch} | Noni-chan 🌸
-        </Text>
+        {showContext && (
+          <Sidebar
+            width={ctxW}
+            height={mainHeight}
+            tokens={tokens}
+            modelLabel={session.modelLabel}
+            cwd={cwd}
+            branch={session.gitBranch}
+            version={appVersion}
+            toolMode={session.toolMode}
+            provider={session.provider}
+          />
+        )}
       </Box>
+
+      <StatusBar
+        cwd={cwd}
+        tokens={tokens}
+        busy={!session.isWaitingInput && !overlayOpen}
+      />
     </Box>
+    </MouseProvider>
   );
 };
 
