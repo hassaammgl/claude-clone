@@ -14,6 +14,9 @@ export interface ProviderRuntime {
   callbacks: AgentLoopCallbacks;
   handleToolUse: (call: ToolCallRequest) => Promise<string>;
   continueStep: () => Promise<void>;
+  /** 1-based turn counter for the current user task. */
+  turn: number;
+  maxTurns: number;
 }
 
 export interface LlmProvider {

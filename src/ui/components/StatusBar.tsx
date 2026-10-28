@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { theme, ESTIMATED_CONTEXT_WINDOW } from "../theme";
-import { AudioWave, LiveDot } from "./Motion";
+import { Spinner } from "./Motion";
 
 interface StatusBarProps {
   cwd: string;
@@ -15,7 +15,14 @@ export const StatusBar = ({ cwd, tokens, busy = false }: StatusBarProps) => {
     Math.round((total / ESTIMATED_CONTEXT_WINDOW) * 100),
   );
   const tokenLabel =
-    total >= 1000 ? `${(total / 1000).toFixed(1)}K` : String(total);
+    total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total);
+  const home = process.env.HOME || "";
+  const short =
+    home && cwd.startsWith(home)
+      ? `~${cwd.slice(home.length)}`
+      : cwd.length > 40
+        ? `…${cwd.slice(-38)}`
+        : cwd;
 
   return (
     <Box
@@ -25,25 +32,28 @@ export const StatusBar = ({ cwd, tokens, busy = false }: StatusBarProps) => {
       backgroundColor={theme.bgPanel}
       paddingX={1}
     >
+      <Text color={theme.dim} wrap="truncate" backgroundColor={theme.bgPanel}>
+        {short}
+      </Text>
       <Box flexDirection="row" backgroundColor={theme.bgPanel}>
-        <LiveDot active={!busy} backgroundColor={theme.bgPanel} />
-        <Text color={theme.dim} wrap="truncate" backgroundColor={theme.bgPanel}>
-          {" "}
-          {cwd}
-        </Text>
-      </Box>
-      <Box flexDirection="row" backgroundColor={theme.bgPanel}>
-        {busy ? <AudioWave active backgroundColor={theme.bgPanel} /> : null}
         {busy ? (
-          <Text color={theme.dim} backgroundColor={theme.bgPanel}>
-            {" "}
-          </Text>
+          <>
+            <Spinner
+              active
+              color={theme.accent}
+              backgroundColor={theme.bgPanel}
+            />
+            <Text color={theme.dim} backgroundColor={theme.bgPanel}>
+              {" "}
+            </Text>
+          </>
         ) : null}
-        <Text color={theme.yellow} backgroundColor={theme.bgPanel}>
-          {tokenLabel} ({pct}%)
+        <Text color={theme.muted} backgroundColor={theme.bgPanel}>
+          {tokenLabel}
         </Text>
         <Text color={theme.dim} backgroundColor={theme.bgPanel}>
-          {"  "}tab · ↑↓ · enter
+          {" · "}
+          {pct}%
         </Text>
       </Box>
     </Box>

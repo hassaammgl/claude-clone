@@ -56,7 +56,7 @@ export function SettingsBody({
         <Line>
           3) Tool mode{" "}
           <Text color={theme.muted} backgroundColor={bg}>
-            [{settings.ollamaToolMode || "auto"}]
+            [{settings.ollamaToolMode || "prompt"}]
           </Text>
         </Line>
         <Line>

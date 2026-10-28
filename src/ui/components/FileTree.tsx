@@ -42,7 +42,7 @@ export const FileTree = ({
     [tree, expanded],
   );
 
-  const listHeight = Math.max(3, height - 4);
+  const listHeight = Math.max(3, height - 3);
   /** Rows above the file list inside this pane (title + hint + margin). */
   const listTopOffset = 3;
 
@@ -168,24 +168,34 @@ export const FileTree = ({
       paddingX={1}
       overflow="hidden"
       borderStyle="single"
-      borderColor={focused ? theme.brand : theme.border}
+      borderColor={focused ? theme.borderFocus : theme.border}
       borderLeft={false}
       borderRight={true}
       borderTop={false}
       borderBottom={false}
       backgroundColor={theme.bgSidebar}
     >
-      <Text
-        color={theme.brand}
-        bold
+      <Box
+        flexDirection="row"
+        justifyContent="space-between"
         backgroundColor={theme.bgSidebar}
-        wrap="truncate"
       >
-        Files {focused ? "●" : "○"}
-      </Text>
-      <Text color={theme.dim} backgroundColor={theme.bgSidebar} wrap="truncate">
-        {`tab·click·wheel·${scrollLabel}`.slice(0, Math.max(6, width - 3))}
-      </Text>
+        <Text
+          color={focused ? theme.brand : theme.muted}
+          bold
+          backgroundColor={theme.bgSidebar}
+          wrap="truncate"
+        >
+          files
+        </Text>
+        <Text
+          color={focused ? theme.brand : theme.dim}
+          backgroundColor={theme.bgSidebar}
+          wrap="truncate"
+        >
+          {focused ? "●" : "○"}
+        </Text>
+      </Box>
 
       <Box
         height={listHeight}
@@ -223,6 +233,11 @@ export const FileTree = ({
           })}
         </ScrollView>
       </Box>
+      {scrollHint !== "all" && scrollHint !== "top" ? (
+        <Text color={theme.dim} backgroundColor={theme.bgSidebar} wrap="truncate">
+          {scrollLabel.slice(0, Math.max(4, width - 3))}
+        </Text>
+      ) : null}
     </Box>
   );
 };

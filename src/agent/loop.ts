@@ -2,7 +2,7 @@ import type { SessionContext } from "./context";
 import type { AgentLoopCallbacks } from "./callbacks";
 import { PermissionEngine } from "../permissions/engine";
 import type { PermissionChoice } from "../permissions/engine";
-import { findTool } from "../tools/index";
+import { findTool, resolveToolName } from "../tools/index";
 import {
   createOllamaProviderBundle,
   createProviderBundle,
@@ -14,6 +14,11 @@ import {
 import { ClaudeProvider } from "./providers/claude";
 import { GeminiProvider } from "./providers/gemini";
 import { handleSlashCommand } from "./slash-commands";
+import { MAX_AGENT_TURNS } from "./providers/autonomy";
+import {
+  missingRequiredArgs,
+  normalizeToolInput,
+} from "./normalize-tool-input";
 
 export type { AgentLoopCallbacks } from "./callbacks";
 
@@ -34,6 +39,8 @@ export class AgentLoop {
   private ollamaApiKey?: string;
   private geminiProvider?: GeminiProvider;
   private claudeProvider?: ClaudeProvider;
+  private turnsThisTask = 0;
+  private busy = false;
 
   constructor(context: SessionContext, callbacks: AgentLoopCallbacks) {
     this.context = context;
@@ -93,18 +100,42 @@ export class AgentLoop {
       this.callbacks.onWaitUserInput?.();
       return;
     }
-    await this.step();
+    this.turnsThisTask = 0;
+    this.busy = true;
+    try {
+      await this.step();
+    } finally {
+      this.busy = false;
+      this.callbacks.onWaitUserInput?.();
+    }
   }
 
   public async submitUserMessage(content: string): Promise<void> {
+    if (this.busy) {
+      this.context.messages.push({
+        role: "error",
+        content: "Still working on the previous request — wait for it to finish.",
+      });
+      this.callbacks.onContextUpdate?.(this.context);
+      // UI already flipped to "thinking" on submit — release it again.
+      this.callbacks.onWaitUserInput?.();
+      return;
+    }
     if (content.startsWith("/")) {
       const handled = await handleSlashCommand(this.slashHost(), content);
       if (handled) return;
     }
+    this.turnsThisTask = 0;
     this.context.messages.push({ role: "user", content });
     this.context.stats.messageCount = this.context.messages.length;
     this.callbacks.onContextUpdate?.(this.context);
-    await this.step();
+    this.busy = true;
+    try {
+      await this.step();
+    } finally {
+      this.busy = false;
+      this.callbacks.onWaitUserInput?.();
+    }
   }
 
   private slashHost() {
@@ -123,6 +154,11 @@ export class AgentLoop {
   }
 
   private async compactConversation(): Promise<void> {
+    // Only compact when we have a cloud summarizer — empty SUMMARY wipes useful history.
+    if (!this.geminiProvider && !this.claudeProvider) {
+      return;
+    }
+
     const historyJson = JSON.stringify(
       this.context.messages.slice(0, COMPACT_KEEP_RECENT),
     );
@@ -132,6 +168,7 @@ export class AgentLoop {
     } else if (this.claudeProvider) {
       summaryText = await this.claudeProvider.summarize(historyJson);
     }
+    if (!summaryText.trim()) return;
 
     this.context.messages = [
       { role: "user", content: `SUMMARY: ${summaryText}` },
@@ -143,6 +180,16 @@ export class AgentLoop {
 
   private async step(): Promise<void> {
     try {
+      this.turnsThisTask += 1;
+      if (this.turnsThisTask > MAX_AGENT_TURNS) {
+        this.context.messages.push({
+          role: "assistant",
+          content: `Paused after ${MAX_AGENT_TURNS} steps to avoid a runaway loop. Send another message to continue.`,
+        });
+        this.callbacks.onContextUpdate?.(this.context);
+        this.callbacks.onWaitUserInput?.();
+        return;
+      }
       if (this.context.messages.length > MESSAGE_COMPACT_THRESHOLD) {
         await this.compactConversation();
       }
@@ -151,6 +198,8 @@ export class AgentLoop {
         callbacks: this.callbacks,
         handleToolUse: (call) => this.executeToolCall(call),
         continueStep: () => this.step(),
+        turn: this.turnsThisTask,
+        maxTurns: MAX_AGENT_TURNS,
       });
     } catch (error: unknown) {
       this.callbacks.onError?.(
@@ -160,16 +209,22 @@ export class AgentLoop {
   }
 
   private async executeToolCall(call: ToolCallRequest): Promise<string> {
+    const name = resolveToolName(call.name);
     const permission = this.permissionEngine.checkPermission(
-      call.name,
+      name,
       this.context,
     );
+
+    if (permission === "deny") {
+      return "Denied by policy (plan mode or permissions).";
+    }
+
     let decision: PermissionChoice = "allow_once";
 
     if (permission === "ask") {
       decision = await new Promise<PermissionChoice>((resolve) => {
         if (this.callbacks.onAskPermission) {
-          this.callbacks.onAskPermission(call.name, call.args, resolve);
+          this.callbacks.onAskPermission(name, call.args, resolve);
         } else {
           resolve("deny");
         }
@@ -178,15 +233,18 @@ export class AgentLoop {
 
     if (decision === "deny") return "User denied execution.";
     if (decision === "allow_always") {
-      this.permissionEngine.registerDecision(call.name, decision);
+      this.permissionEngine.registerDecision(name, decision);
     }
 
-    const tool = findTool(call.name);
-    if (!tool) return `Unknown tool: ${call.name}`;
+    const tool = findTool(name);
+    if (!tool) return `Unknown tool: ${call.name} (resolved: ${name})`;
 
     try {
       this.context.stats.toolCallCount++;
-      return await tool.execute(call.args, this.context, {
+      const args = normalizeToolInput(name, call.args);
+      const missing = missingRequiredArgs(name, args);
+      if (missing) return missing;
+      return await tool.execute(args, this.context, {
         onAskUserQuestion: this.callbacks.onAskUserQuestion,
       });
     } catch (error: unknown) {

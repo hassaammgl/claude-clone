@@ -35,8 +35,8 @@ export function ThinkingLabel({
   const dots = pickFrame(DOTS, frame);
   const spin = pickFrame(SPINNER, frame);
   return (
-    <Text color={theme.busy} backgroundColor={backgroundColor}>
-      {spin} Thought{dots}
+    <Text color={theme.muted} backgroundColor={backgroundColor}>
+      {spin} thinking{dots}
     </Text>
   );
 }

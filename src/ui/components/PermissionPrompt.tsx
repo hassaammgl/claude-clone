@@ -3,7 +3,7 @@ import { InputArea } from "./InputArea";
 import { theme } from "../theme";
 import type { PermissionChoice } from "../../permissions/engine";
 
-const bg = theme.bgPanel;
+const bg = theme.bgElevated;
 
 interface PermissionPromptProps {
   toolName: string;
@@ -16,22 +16,26 @@ export const PermissionPrompt = ({
   input,
   onDecide,
 }: PermissionPromptProps) => {
+  const preview = JSON.stringify(input);
+  const clipped =
+    preview.length > 80 ? `${preview.slice(0, 77)}…` : preview;
+
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor={theme.accent}
+      borderColor={theme.border}
       borderBackgroundColor={bg}
       paddingX={1}
       width="100%"
       marginTop={1}
       backgroundColor={bg}
     >
-      <Text color={theme.accent} bold backgroundColor={bg}>
-        Allow tool · {toolName}?
+      <Text color={theme.brand} bold backgroundColor={bg}>
+        allow · {toolName}
       </Text>
       <Text color={theme.dim} wrap="truncate" backgroundColor={bg}>
-        {JSON.stringify(input)}
+        {clipped}
       </Text>
       <Text color={theme.muted} backgroundColor={bg}>
         1 once · 2 always · 3 deny

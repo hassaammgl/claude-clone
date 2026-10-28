@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import Markdown from "ink-markdown-es";
 import { theme } from "../theme";
-import { BlinkCaret, Spinner } from "./Motion";
+import { BlinkCaret } from "./Motion";
 
 export type MessageType =
   | "user"
@@ -18,19 +18,55 @@ interface MessageItemProps {
   isStreaming?: boolean;
 }
 
-function markerFor(type: MessageType): { glyph: string; color: string } {
+function roleMeta(type: MessageType, label?: string): {
+  title: string;
+  color: string;
+  bg: string;
+  mark: string;
+} {
   switch (type) {
     case "user":
-      return { glyph: "❯", color: theme.brand };
+      return {
+        title: "you",
+        color: theme.brand,
+        bg: theme.bgUser,
+        mark: "❯",
+      };
     case "action":
-      return { glyph: "→", color: theme.accent };
+      return {
+        title: label || "tool",
+        color: theme.accent,
+        bg: theme.bgTool,
+        mark: "→",
+      };
     case "thought":
-      return { glyph: "+", color: theme.yellow };
+      return {
+        title: label || "result",
+        color: theme.yellow,
+        bg: theme.bgTool,
+        mark: "·",
+      };
     case "error":
-      return { glyph: "✕", color: theme.error };
+      return {
+        title: "error",
+        color: theme.error,
+        bg: theme.bgMessage,
+        mark: "✕",
+      };
     default:
-      return { glyph: "◆", color: theme.green };
+      return {
+        title: "noni",
+        color: theme.green,
+        bg: theme.bgMessage,
+        mark: "◆",
+      };
   }
+}
+
+function clipContent(content: string, type: MessageType): string {
+  if (type !== "action" && type !== "thought") return content;
+  if (content.length <= 1200) return content;
+  return `${content.slice(0, 1200)}\n…`;
 }
 
 export const MessageItem = ({
@@ -39,41 +75,42 @@ export const MessageItem = ({
   label,
   isStreaming,
 }: MessageItemProps) => {
-  const marker = markerFor(type);
-  const showSpinner = type === "action";
+  const meta = roleMeta(type, label);
+  const isUser = type === "user";
+  const body = clipContent(content, type);
 
   return (
     <Box
       flexDirection="column"
       marginBottom={1}
       width="100%"
-      backgroundColor={theme.bg}
+      backgroundColor={meta.bg}
+      paddingX={0}
     >
-      <Box flexDirection="row" backgroundColor={theme.bg}>
-        {showSpinner ? (
-          <>
-            <Spinner active color={theme.accent} backgroundColor={theme.bg} />
-            <Text backgroundColor={theme.bg}> </Text>
-          </>
+      <Box flexDirection="row" backgroundColor={meta.bg}>
+        <Text color={meta.color} bold backgroundColor={meta.bg}>
+          {meta.mark}
+        </Text>
+        <Text color={meta.color} bold backgroundColor={meta.bg}>
+          {" "}
+          {meta.title}
+        </Text>
+      </Box>
+
+      <Box
+        flexDirection="column"
+        marginLeft={2}
+        backgroundColor={meta.bg}
+      >
+        {isUser ? (
+          <Text color={theme.cream} backgroundColor={meta.bg}>
+            {body}
+          </Text>
         ) : (
-          <Text color={marker.color} bold backgroundColor={theme.bg}>
-            {marker.glyph}{" "}
-          </Text>
-        )}
-        {label ? (
-          <Text color={marker.color} bold backgroundColor={theme.bg}>
-            {label}{" "}
-          </Text>
-        ) : null}
-        {type === "user" ? (
-          <Text color={theme.cream} backgroundColor={theme.bg}>
-            {content}
-          </Text>
-        ) : (
-          <Box flexGrow={1} flexDirection="column" backgroundColor={theme.bg}>
-            <Markdown>{content}</Markdown>
+          <Box flexGrow={1} flexDirection="column" backgroundColor={meta.bg}>
+            <Markdown>{body}</Markdown>
             {isStreaming ? (
-              <BlinkCaret active backgroundColor={theme.bg} />
+              <BlinkCaret active backgroundColor={meta.bg} />
             ) : null}
           </Box>
         )}

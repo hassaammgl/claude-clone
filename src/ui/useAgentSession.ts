@@ -30,7 +30,7 @@ export function useAgentSession(initialPrompt?: string) {
   const [provider, setProvider] = useState("…");
   const [ollamaModel, setOllamaModel] = useState<string | undefined>();
   const [toolMode, setToolMode] = useState(
-    () => loadSettings().ollamaToolMode || "auto",
+    () => loadSettings().ollamaToolMode || "prompt",
   );
   const [alwaysAllowed, setAlwaysAllowed] = useState<string[]>([]);
   const [stats, setStats] = useState<SessionStats | null>(null);
@@ -43,7 +43,7 @@ export function useAgentSession(initialPrompt?: string) {
     setOllamaModel(loop.getOllamaModel());
     setModelLabel(loop.getModelLabel());
     setAlwaysAllowed(loop.getAlwaysAllowed());
-    setToolMode(loadSettings().ollamaToolMode || "auto");
+    setToolMode(loadSettings().ollamaToolMode || "prompt");
   };
 
   useEffect(() => {

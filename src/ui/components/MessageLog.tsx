@@ -100,10 +100,36 @@ function buildItems(
         <MessageItem
           key={`msg-${i}`}
           type="thought"
-          label={msg.tool_name || "tool"}
+          label={msg.tool_name || "result"}
           content={contentString(msg.content)}
         />,
       );
+      return;
+    }
+
+    // Ollama / OpenAI-style tool_calls on assistant messages
+    if (
+      msg.role === "assistant" &&
+      Array.isArray(msg.tool_calls) &&
+      msg.tool_calls.length > 0
+    ) {
+      const text = contentString(msg.content).trim();
+      if (text) {
+        items.push(
+          <MessageItem key={`msg-${i}-text`} type="assistant" content={text} />,
+        );
+      }
+      msg.tool_calls.forEach((call, callIdx) => {
+        const args = call.function.arguments ?? {};
+        items.push(
+          <MessageItem
+            key={`msg-${i}-tool-${callIdx}`}
+            type="action"
+            label={call.function.name}
+            content={`\`\`\`json\n${JSON.stringify(args, null, 2)}\n\`\`\``}
+          />,
+        );
+      });
       return;
     }
 
@@ -114,11 +140,14 @@ function buildItems(
           ? "error"
           : "assistant";
 
+    const body = contentString(msg.content);
+    if (msg.role === "assistant" && !body.trim()) return;
+
     items.push(
       <MessageItem
         key={`msg-${i}`}
         type={type}
-        content={contentString(msg.content)}
+        content={body}
       />,
     );
   });
@@ -154,8 +183,8 @@ export const MessageLog = ({
   const scrollRef = useRef<ScrollViewRef>(null);
   const stickBottom = useRef(true);
   const [hint, setHint] = useState<"fit" | "top" | "bottom" | "mid">("fit");
-  const headerRows = 1;
-  const viewportRows = Math.max(3, height - headerRows);
+  const showScrollHint = hint !== "fit" && hint !== "bottom";
+  const viewportRows = Math.max(3, height - (showScrollHint ? 1 : 0));
 
   const refreshHint = (offset: number) => {
     const bottom = scrollRef.current?.getBottomOffset() ?? 0;
@@ -249,8 +278,13 @@ export const MessageLog = ({
             Noni-chan
           </Text>
           <Text color={theme.muted} backgroundColor={theme.bg}>
-            Ready · wheel / PgUp·PgDn scroll
+            your coding companion
           </Text>
+          <Box marginTop={1} flexDirection="column" alignItems="center">
+            <Text color={theme.dim} backgroundColor={theme.bg}>
+              type a message · /models · /settings
+            </Text>
+          </Box>
         </Box>
       </Box>
     );
@@ -258,12 +292,12 @@ export const MessageLog = ({
 
   const scrollLabel =
     hint === "fit"
-      ? "fit"
+      ? ""
       : hint === "top"
-        ? "↓ PgDn newer"
+        ? "↓ more"
         : hint === "bottom"
-          ? "↑ PgUp older"
-          : "↕ PgUp/PgDn";
+          ? ""
+          : "↕";
 
   return (
     <Box
@@ -272,14 +306,13 @@ export const MessageLog = ({
       overflow="hidden"
       backgroundColor={theme.bg}
     >
-      <Box justifyContent="space-between" backgroundColor={theme.bg}>
-        <Text color={theme.dim} backgroundColor={theme.bg}>
-          {hint === "bottom" || hint === "fit" ? "" : "↑ scrolled"}
-        </Text>
-        <Text color={theme.dim} backgroundColor={theme.bg}>
-          {focused ? "●" : "○"} chat · {scrollLabel} · wheel
-        </Text>
-      </Box>
+      {showScrollHint ? (
+        <Box justifyContent="flex-end" backgroundColor={theme.bg}>
+          <Text color={theme.dim} backgroundColor={theme.bg}>
+            {scrollLabel}
+          </Text>
+        </Box>
+      ) : null}
       <Box
         height={viewportRows}
         flexDirection="column"

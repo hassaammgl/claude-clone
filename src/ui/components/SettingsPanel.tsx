@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import TextInput from "ink-text-input";
 import { theme } from "../theme";
@@ -7,6 +7,11 @@ import type { Settings } from "../../config/settings";
 import { getToolDefinitions } from "../../tools/index";
 import { SettingsBody } from "./SettingsBody";
 import type { SettingsScreen } from "./SettingsBody";
+import { ModelPicker } from "./ModelPicker";
+import {
+  listOllamaModels,
+  type OllamaModelInfo,
+} from "../../ollama/models";
 
 export type { SettingsScreen } from "./SettingsBody";
 
@@ -38,6 +43,22 @@ export const SettingsPanel = ({
   const [settings, setSettings] = useState(loadSettings);
   const [draft, setDraft] = useState("");
   const [flash, setFlash] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
+
+  useEffect(() => {
+    if (screen !== "model") return;
+    let cancelled = false;
+    void listOllamaModels()
+      .then((models) => {
+        if (!cancelled) setOllamaModels(models);
+      })
+      .catch(() => {
+        if (!cancelled) setOllamaModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [screen]);
 
   const showFlash = (text: string) => {
     setFlash(text);
@@ -90,16 +111,20 @@ export const SettingsPanel = ({
     setScreen("menu");
   };
 
+  const selectModel = (model: string) => {
+    setSettings(savePatch({ ollamaModel: model, activeProvider: "ollama" }));
+    onReloadAgent();
+    showFlash(`Model → ${model}`);
+    setScreen("menu");
+  };
+
   const handleModel = (value: string) => {
     const model = value.trim();
     if (!model) {
       showFlash("Model name required");
       return;
     }
-    setSettings(savePatch({ ollamaModel: model, activeProvider: "ollama" }));
-    onReloadAgent();
-    showFlash(`Model → ${model}`);
-    setScreen("menu");
+    selectModel(model);
   };
 
   const handleWaifu = (value: string) => {
@@ -151,6 +176,8 @@ export const SettingsPanel = ({
     .map((t) => t.name)
     .filter((name) => !alwaysAllowed.includes(name));
 
+  const showModelList = screen === "model" && ollamaModels.length > 0;
+
   return (
     <Box
       flexDirection="column"
@@ -170,17 +197,30 @@ export const SettingsPanel = ({
           {flash}
         </Text>
       ) : null}
-      <SettingsBody
-        screen={screen}
-        settings={settings}
-        pendingTools={pendingTools}
-      />
-      <Box marginTop={1} backgroundColor={theme.bgPanel}>
-        <Text color={theme.prompt} backgroundColor={theme.bgPanel}>
-          ❯{" "}
-        </Text>
-        <TextInput value={draft} onChange={setDraft} onSubmit={onSubmit} />
-      </Box>
+
+      {showModelList ? (
+        <ModelPicker
+          models={ollamaModels}
+          current={settings.ollamaModel}
+          title="Ollama models"
+          onSelect={selectModel}
+          onSkip={() => setScreen("menu")}
+        />
+      ) : (
+        <>
+          <SettingsBody
+            screen={screen}
+            settings={settings}
+            pendingTools={pendingTools}
+          />
+          <Box marginTop={1} backgroundColor={theme.bgPanel}>
+            <Text color={theme.prompt} backgroundColor={theme.bgPanel}>
+              ❯{" "}
+            </Text>
+            <TextInput value={draft} onChange={setDraft} onSubmit={onSubmit} />
+          </Box>
+        </>
+      )}
     </Box>
   );
 };

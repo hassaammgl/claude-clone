@@ -17,11 +17,15 @@ export const grepTool: ToolDefinition = {
       path: { type: "string", description: "Directory or file to search in (relative to working dir)" },
       file_glob: { type: "string", description: "Optional glob to filter files (e.g. '*.ts')" }
     },
-    required: ["pattern", "path"]
+    required: ["pattern"]
   },
   execute: async (input, context) => {
     try {
-      const searchPath = path.resolve(context.workingDirectory, input.path);
+      const relativePath =
+        typeof input.path === "string" && input.path.trim()
+          ? input.path
+          : ".";
+      const searchPath = path.resolve(context.workingDirectory, relativePath);
       
       // Try ripgrep first
       try {

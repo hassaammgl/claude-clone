@@ -10,7 +10,7 @@ export const powershellTool: ToolDefinition = {
       command: { type: "string", description: "The PowerShell command to execute" },
       description: { type: "string", description: "A short description of what this command is attempting to do" }
     },
-    required: ["command", "description"]
+    required: ["command"]
   },
   execute: async (input, context) => {
     return new Promise((resolve) => {

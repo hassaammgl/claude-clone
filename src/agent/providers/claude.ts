@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages.mjs";
 import { getToolDefinitions } from "../../tools/index";
 import { getSystemPrompt } from "../system-prompt";
 import type { LlmProvider, ProviderRuntime, ToolCallRequest } from "./types";
@@ -31,17 +32,27 @@ function claudeTools() {
 function extractClaudeParts(response: Anthropic.Message): {
   text: string;
   toolCalls: ClaudeToolCall[];
+  contentBlocks: ContentBlockParam[];
 } {
   let text = "";
   const toolCalls: ClaudeToolCall[] = [];
+  const contentBlocks: ContentBlockParam[] = [];
+
   for (const block of response.content) {
     if (block.type === "text") {
       text += block.text;
+      contentBlocks.push({ type: "text", text: block.text });
     } else if (block.type === "tool_use") {
       toolCalls.push({ name: block.name, args: block.input, id: block.id });
+      contentBlocks.push({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: block.input,
+      });
     }
   }
-  return { text, toolCalls };
+  return { text, toolCalls, contentBlocks };
 }
 
 function recordClaudeUsage(
@@ -53,42 +64,38 @@ function recordClaudeUsage(
   runtime.context.stats.totalTokens.output += usage.output_tokens || 0;
 }
 
-function pushClaudeAssistantText(
+async function applyClaudeToolCalls(
   runtime: ProviderRuntime,
-  text: string,
+  toolCalls: ClaudeToolCall[],
+  assistantBlocks: ContentBlockParam[],
   usage: Anthropic.Usage | undefined,
-): void {
+): Promise<void> {
   runtime.context.messages.push({
     role: "assistant",
-    content: text,
+    content: assistantBlocks,
     usage: usage
       ? { input: usage.input_tokens, output: usage.output_tokens }
       : undefined,
   });
   runtime.context.stats.messageCount = runtime.context.messages.length;
   runtime.callbacks.onContextUpdate?.(runtime.context);
-  runtime.callbacks.onStreamComplete?.(text);
-}
 
-async function applyClaudeToolCalls(
-  runtime: ProviderRuntime,
-  toolCalls: ClaudeToolCall[],
-): Promise<void> {
+  const results: ContentBlockParam[] = [];
   for (const call of toolCalls) {
     const toolResult = await runtime.handleToolUse(call);
-    runtime.context.messages.push({
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: toolResult,
-        },
-      ],
+    results.push({
+      type: "tool_result",
+      tool_use_id: call.id,
+      content: toolResult,
     });
-    runtime.context.stats.messageCount = runtime.context.messages.length;
-    runtime.callbacks.onContextUpdate?.(runtime.context);
   }
+
+  runtime.context.messages.push({
+    role: "user",
+    content: results,
+  });
+  runtime.context.stats.messageCount = runtime.context.messages.length;
+  runtime.callbacks.onContextUpdate?.(runtime.context);
   await runtime.continueStep();
 }
 
@@ -102,17 +109,36 @@ export class ClaudeProvider implements LlmProvider {
       model: CLAUDE_MODEL,
       max_tokens: CLAUDE_MAX_TOKENS,
       system: getSystemPrompt(),
-      messages: buildClaudeMessages(runtime),
+      messages: buildClaudeMessages(runtime) as Anthropic.MessageParam[],
       tools: claudeTools() as Anthropic.Messages.Tool[],
     });
     recordClaudeUsage(runtime, response.usage);
-    const { text, toolCalls } = extractClaudeParts(response);
-    if (text) {
-      pushClaudeAssistantText(runtime, text, response.usage);
-    }
+    const { text, toolCalls, contentBlocks } = extractClaudeParts(response);
+
     if (toolCalls.length > 0) {
-      await applyClaudeToolCalls(runtime, toolCalls);
+      await applyClaudeToolCalls(
+        runtime,
+        toolCalls,
+        contentBlocks,
+        response.usage,
+      );
       return;
+    }
+
+    if (text) {
+      runtime.context.messages.push({
+        role: "assistant",
+        content: text,
+        usage: response.usage
+          ? {
+              input: response.usage.input_tokens,
+              output: response.usage.output_tokens,
+            }
+          : undefined,
+      });
+      runtime.context.stats.messageCount = runtime.context.messages.length;
+      runtime.callbacks.onContextUpdate?.(runtime.context);
+      runtime.callbacks.onStreamComplete?.(text);
     }
     runtime.callbacks.onWaitUserInput?.();
   }

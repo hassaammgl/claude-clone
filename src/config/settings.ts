@@ -12,7 +12,7 @@ export interface Settings {
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   ollamaApiKey?: string;
-  /** How Ollama should call tools. auto = native + text fallback (best for small models). */
+  /** How Ollama should call tools. prompt = text <tool_call> (best for local/small models). */
   ollamaToolMode?: "auto" | "native" | "prompt";
   activeProvider?: "claude" | "gemini" | "openai" | "ollama";
   waifuMode?: boolean;
@@ -27,7 +27,7 @@ export interface Settings {
 
 const DEFAULT_SETTINGS: Settings = {
   model: "claude-3-5-sonnet-20240620",
-  ollamaToolMode: "auto",
+  ollamaToolMode: "prompt",
   globalPermissions: [],
   mcpServers: []
 };

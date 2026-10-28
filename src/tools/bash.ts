@@ -4,7 +4,7 @@ import type { ToolDefinition } from "./types";
 export const bashTool: ToolDefinition = {
   name: "bash",
   description:
-    "Execute a bash command in the terminal. The working directory persists across calls. Output is captured and returned.",
+    "Execute a bash command in the terminal. Output is captured and returned. Note: cwd resets each call — use absolute paths or chain with &&.",
   input_schema: {
     type: "object",
     properties: {
@@ -15,10 +15,14 @@ export const bashTool: ToolDefinition = {
           "A short description of what this command is attempting to do",
       },
     },
-    required: ["command", "description"],
+    required: ["command"],
   },
   execute: async (input, context) => {
     return new Promise((resolve) => {
+      if (!input.command || typeof input.command !== "string") {
+        resolve("Error: bash requires a string `command` argument.");
+        return;
+      }
       // Execute the command with a 120s timeout and a 5MB output buffer
       const child = exec(
         input.command,

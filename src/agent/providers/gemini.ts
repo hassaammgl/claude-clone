@@ -114,15 +114,30 @@ export class GeminiProvider implements LlmProvider {
     const response = result.response;
     recordGeminiUsage(runtime, response.usageMetadata);
 
-    const text = response.text();
-    if (text) {
-      pushGeminiAssistantText(runtime, text, response.usageMetadata);
-    }
-
     const calls = response.functionCalls();
     if (calls && calls.length > 0) {
+      // Prefer function calls; response.text() often throws on tool-only turns.
+      let text = "";
+      try {
+        text = response.text();
+      } catch {
+        text = "";
+      }
+      if (text) {
+        pushGeminiAssistantText(runtime, text, response.usageMetadata);
+      }
       await applyGeminiToolCalls(runtime, calls);
       return;
+    }
+
+    let text = "";
+    try {
+      text = response.text();
+    } catch {
+      text = "";
+    }
+    if (text) {
+      pushGeminiAssistantText(runtime, text, response.usageMetadata);
     }
     runtime.callbacks.onWaitUserInput?.();
   }

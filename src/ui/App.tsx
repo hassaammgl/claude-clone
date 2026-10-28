@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { Header } from "./components/Header";
 import { MessageLog } from "./components/MessageLog";
@@ -13,23 +13,30 @@ import {
   QuestionPrompt,
   BulkPermissionPrompt,
 } from "./components/PermissionPrompt";
+import { ModelPicker } from "./components/ModelPicker";
 import { theme } from "./theme";
 import { useAgentSession } from "./useAgentSession";
 import { version as appVersion } from "../../package.json";
 import { ThinkingLabel } from "./components/Motion";
 import { MouseProvider } from "./mouse/MouseContext";
 import { looksLikeMouseLeak } from "./mouse/parse";
+import {
+  getOllamaBaseUrl,
+  listOllamaModels,
+  type OllamaModelInfo,
+} from "../ollama/models";
+import { loadSettings, saveSettings } from "../config/settings";
 
 interface AppProps {
   initialPrompt?: string;
 }
 
 /** Fixed pane sizes — must sum with chat to exactly `cols`. */
-const FILE_TREE_WIDTH = 26;
-const CONTEXT_WIDTH = 22;
+const FILE_TREE_WIDTH = 24;
+const CONTEXT_WIDTH = 20;
 const STATUS_HEIGHT = 1;
-const HEADER_HEIGHT = 1;
-const INPUT_HEIGHT = 3;
+const HEADER_HEIGHT = 2;
+const INPUT_HEIGHT = 2;
 
 type FocusPane = "files" | "chat";
 
@@ -40,8 +47,8 @@ function layoutFor(cols: number): {
   ctxW: number;
   chatW: number;
 } {
-  // Prefer Files over Context when space is tight.
-  if (cols >= 110) {
+  // Always try to keep Files + Context when there is room for a usable chat.
+  if (cols >= 96) {
     return {
       showFiles: true,
       showContext: true,
@@ -50,13 +57,37 @@ function layoutFor(cols: number): {
       chatW: cols - FILE_TREE_WIDTH - CONTEXT_WIDTH,
     };
   }
-  if (cols >= 72) {
+  if (cols >= 80) {
+    const fileW = 22;
+    const ctxW = 18;
     return {
       showFiles: true,
-      showContext: false,
-      fileW: FILE_TREE_WIDTH,
-      ctxW: 0,
-      chatW: cols - FILE_TREE_WIDTH,
+      showContext: true,
+      fileW,
+      ctxW,
+      chatW: cols - fileW - ctxW,
+    };
+  }
+  if (cols >= 64) {
+    const fileW = 20;
+    const ctxW = 18;
+    return {
+      showFiles: true,
+      showContext: true,
+      fileW,
+      ctxW,
+      chatW: cols - fileW - ctxW,
+    };
+  }
+  if (cols >= 52) {
+    // Narrow: keep context (session/tokens) over files.
+    const ctxW = 18;
+    return {
+      showFiles: false,
+      showContext: true,
+      fileW: 0,
+      ctxW,
+      chatW: cols - ctxW,
     };
   }
   return {
@@ -73,6 +104,9 @@ const App = ({ initialPrompt }: AppProps) => {
     null,
   );
   const [focus, setFocus] = useState<FocusPane>("chat");
+  const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const startupPickerShown = useRef(false);
   const session = useAgentSession(initialPrompt);
   const { stdout } = useStdout();
   const cols = stdout?.columns || process.stdout.columns || 100;
@@ -84,6 +118,7 @@ const App = ({ initialPrompt }: AppProps) => {
   const mainHeight = Math.max(10, rows - STATUS_HEIGHT);
   const overlayOpen =
     settingsScreen !== null ||
+    showModelPicker ||
     !!session.permissionRequest ||
     !!session.questionRequest ||
     !!session.bulkPermissionRequest;
@@ -92,11 +127,62 @@ const App = ({ initialPrompt }: AppProps) => {
     INPUT_HEIGHT + (session.isWaitingInput || overlayOpen ? 0 : 1);
   const messageHeight = Math.max(
     5,
-    mainHeight - HEADER_HEIGHT - bottomReserved - (overlayOpen ? 6 : 0),
+    mainHeight - HEADER_HEIGHT - bottomReserved - (overlayOpen ? 8 : 0),
   );
+
+  useEffect(() => {
+    if (session.provider !== "ollama") return;
+    if (startupPickerShown.current) return;
+    if (initialPrompt) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const models = await listOllamaModels();
+        if (cancelled || models.length === 0) return;
+        startupPickerShown.current = true;
+        setOllamaModels(models);
+        setShowModelPicker(true);
+      } catch {
+        // Ollama not reachable — skip menu
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.provider, initialPrompt]);
+
+  const openModelPicker = async () => {
+    try {
+      const models = await listOllamaModels();
+      if (models.length === 0) return false;
+      setOllamaModels(models);
+      setShowModelPicker(true);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const applyOllamaModel = (model: string) => {
+    const settings = loadSettings();
+    saveSettings({
+      ...settings,
+      ollamaModel: model,
+      ollamaBaseUrl: settings.ollamaBaseUrl || getOllamaBaseUrl(),
+      activeProvider: "ollama",
+    });
+    session.loopRef.current?.reloadFromSettings();
+    if (session.loopRef.current) {
+      session.syncAgentMeta(session.loopRef.current);
+    }
+    setShowModelPicker(false);
+  };
 
   useInput((input, key) => {
     if (looksLikeMouseLeak(input)) return;
+    if (showModelPicker) return;
     if (!key.tab) return;
     if (!showFiles) {
       setFocus("chat");
@@ -116,6 +202,20 @@ const App = ({ initialPrompt }: AppProps) => {
       setSettingsScreen("setup");
       return;
     }
+    if (trimmed === "/models" || trimmed.startsWith("/models ")) {
+      const arg = trimmed.slice("/models".length).trim();
+      if (arg) {
+        applyOllamaModel(arg);
+        return;
+      }
+      void openModelPicker().then((opened) => {
+        if (!opened) {
+          session.setIsWaitingInput(false);
+          void session.loopRef.current?.submitUserMessage(trimmed);
+        }
+      });
+      return;
+    }
     session.setIsWaitingInput(false);
     setFocus("chat");
     void session.loopRef.current.submitUserMessage(trimmed);
@@ -133,13 +233,13 @@ const App = ({ initialPrompt }: AppProps) => {
 
   return (
     <MouseProvider>
-    <Box
-      flexDirection="column"
-      width={cols}
-      height={rows}
-      overflow="hidden"
-      backgroundColor={theme.bg}
-    >
+      <Box
+        flexDirection="column"
+        width={cols}
+        height={rows}
+        overflow="hidden"
+        backgroundColor={theme.bg}
+      >
       <Box
         flexDirection="row"
         width={cols}
@@ -185,6 +285,15 @@ const App = ({ initialPrompt }: AppProps) => {
             }}
           />
 
+          {showModelPicker && ollamaModels.length > 0 && (
+            <ModelPicker
+              models={ollamaModels}
+              current={session.ollamaModel || loadSettings().ollamaModel}
+              onSelect={applyOllamaModel}
+              onSkip={() => setShowModelPicker(false)}
+            />
+          )}
+
           {session.permissionRequest && (
             <PermissionPrompt
               toolName={session.permissionRequest.toolName}
@@ -203,7 +312,6 @@ const App = ({ initialPrompt }: AppProps) => {
               onChoose={(choice) => {
                 session.questionRequest?.resolve(choice);
                 session.setQuestionRequest(null);
-                session.setIsWaitingInput(true);
               }}
             />
           )}
@@ -251,15 +359,19 @@ const App = ({ initialPrompt }: AppProps) => {
           )}
 
           {session.isWaitingInput && !overlayOpen && focus === "files" && (
-            <Box marginTop={1} backgroundColor={theme.bg}>
-              <Text color={theme.dim} backgroundColor={theme.bg}>
-                Files focused · tab → chat
+            <Box
+              marginTop={0}
+              paddingX={1}
+              backgroundColor={theme.bgInput}
+            >
+              <Text color={theme.dim} backgroundColor={theme.bgInput}>
+                files focused · tab → chat
               </Text>
             </Box>
           )}
 
           {!session.isWaitingInput && !overlayOpen && (
-            <Box marginTop={1} backgroundColor={theme.bg}>
+            <Box marginTop={0} paddingX={1} backgroundColor={theme.bg}>
               <ThinkingLabel active backgroundColor={theme.bg} />
             </Box>
           )}
@@ -285,7 +397,7 @@ const App = ({ initialPrompt }: AppProps) => {
         tokens={tokens}
         busy={!session.isWaitingInput && !overlayOpen}
       />
-    </Box>
+      </Box>
     </MouseProvider>
   );
 };

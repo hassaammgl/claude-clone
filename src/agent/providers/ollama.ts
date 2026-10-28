@@ -1,8 +1,7 @@
-import { getToolDefinitions } from "../../tools/index";
+import { getCoreToolDefinitions } from "./prompt-tools";
 import { loadSettings } from "../../config/settings";
 import type { Message, OllamaToolCall } from "../messages";
 import { isOllamaToolCall } from "../messages";
-import { getSystemPrompt } from "../system-prompt";
 import type { LlmProvider, ProviderRuntime } from "./types";
 import {
   isRecord,
@@ -10,10 +9,23 @@ import {
   normalizeToolArgs,
 } from "./types";
 import {
-  buildPromptToolInstructions,
   formatPromptToolResult,
   parsePromptToolCalls,
+  TOOL_FORCE_NUDGE,
+  userMessageNeedsTools,
+  assistantLecturedAboutTools,
 } from "./prompt-tools";
+import {
+  CONTINUE_NUDGE,
+  findUserGoal,
+  recentToolActivity,
+  shouldContinueAutonomously,
+} from "./autonomy";
+import {
+  buildOllamaSystemPrompt,
+  isSyntheticSessionMessage,
+  serializePromptAssistant,
+} from "./ollama-messages";
 
 export type OllamaToolMode = "auto" | "native" | "prompt";
 
@@ -79,19 +91,14 @@ function toPromptApiMessage(message: Message): OllamaApiMessage {
       ),
     };
   }
-  const role =
-    message.role === "assistant"
-      ? "assistant"
-      : message.role === "user"
-        ? "user"
-        : "system";
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      content: serializePromptAssistant(message),
+    };
+  }
+  const role = message.role === "user" ? "user" : "system";
   return { role, content: messageText(message.content) };
-}
-
-function buildSystemContent(usePromptTools: boolean): string {
-  const base = getSystemPrompt();
-  if (!usePromptTools) return base;
-  return `${base}\n\n${buildPromptToolInstructions()}`;
 }
 
 function buildOllamaMessages(
@@ -99,14 +106,15 @@ function buildOllamaMessages(
   usePromptTools: boolean,
 ): OllamaApiMessage[] {
   const mapper = usePromptTools ? toPromptApiMessage : toNativeApiMessage;
+  const filtered = contextMessages.filter((m) => !isSyntheticSessionMessage(m));
   return [
-    { role: "system", content: buildSystemContent(usePromptTools) },
-    ...contextMessages.map(mapper),
+    { role: "system", content: buildOllamaSystemPrompt(usePromptTools) },
+    ...filtered.map(mapper),
   ];
 }
 
 function ollamaToolsForApi() {
-  return getToolDefinitions().map((tool) => ({
+  return getCoreToolDefinitions().map((tool) => ({
     type: "function" as const,
     function: {
       name: tool.name,
@@ -193,14 +201,49 @@ function isToolsUnsupportedError(error: unknown): boolean {
   return /tool|function.?call|does not support|unsupported/i.test(message);
 }
 
+function lastUserText(messages: Message[]): string {
+  return findUserGoal(messages);
+}
+
 export class OllamaProvider implements LlmProvider {
   readonly name = "ollama" as const;
   private forcePromptTools = false;
+  /** Ephemeral continue/force nudge — not written into chat history. */
+  private pendingNudge: string | null = null;
 
   constructor(private readonly config: OllamaConfig) {}
 
   async step(runtime: ProviderRuntime): Promise<void> {
-    const response = await this.requestChat(runtime.context.messages);
+    const requestMessages = this.pendingNudge
+      ? [
+          ...runtime.context.messages,
+          { role: "user" as const, content: this.pendingNudge },
+        ]
+      : runtime.context.messages;
+    this.pendingNudge = null;
+
+    let response = await this.requestChat(requestMessages);
+    const goal = findUserGoal(runtime.context.messages);
+    const alreadyUsedTools = recentToolActivity(runtime.context.messages);
+
+    // Only force a tool call on the first attempt — not after tools already ran.
+    if (
+      response.toolCalls.length === 0 &&
+      !alreadyUsedTools &&
+      (userMessageNeedsTools(goal) ||
+        assistantLecturedAboutTools(response.content))
+    ) {
+      const retry = await this.requestChat([
+        ...runtime.context.messages,
+        { role: "user", content: TOOL_FORCE_NUDGE },
+      ]);
+      if (retry.toolCalls.length > 0) {
+        response = retry;
+      } else if (retry.content.trim()) {
+        response = retry;
+      }
+    }
+
     if (!response.content && response.toolCalls.length === 0) {
       throw new Error("Ollama returned an empty response.");
     }
@@ -209,23 +252,40 @@ export class OllamaProvider implements LlmProvider {
       await executeToolCalls(runtime, response.toolCalls);
       return;
     }
+
+    // Multi-step autonomy: don't wait for the user if the task still looks open.
+    if (
+      shouldContinueAutonomously({
+        goal,
+        assistantText: response.content,
+        messages: runtime.context.messages,
+        turn: runtime.turn,
+        maxTurns: runtime.maxTurns,
+      })
+    ) {
+      this.pendingNudge = CONTINUE_NUDGE;
+      await runtime.continueStep();
+      return;
+    }
+
     runtime.callbacks.onWaitUserInput?.();
   }
 
   private shouldUsePromptTools(): boolean {
     const mode = resolveToolMode(this.config);
-    return mode === "prompt" || this.forcePromptTools;
+    // auto → prompt-style text tools (most reliable for local/small models)
+    return mode === "prompt" || mode === "auto" || this.forcePromptTools;
   }
 
   private shouldSendNativeTools(): boolean {
     const mode = resolveToolMode(this.config);
-    if (mode === "prompt" || this.forcePromptTools) return false;
-    return mode === "native" || mode === "auto";
+    // Native API tools only when explicitly requested — mixing with prompt confuses models.
+    if (this.forcePromptTools) return false;
+    return mode === "native";
   }
 
   private async requestChat(messages: Message[]): Promise<OllamaChatResponse> {
-    const usePromptTools =
-      this.shouldUsePromptTools() || resolveToolMode(this.config) === "auto";
+    const usePromptTools = this.shouldUsePromptTools();
     try {
       const data = await this.postChat(messages, {
         includeNativeTools: this.shouldSendNativeTools(),

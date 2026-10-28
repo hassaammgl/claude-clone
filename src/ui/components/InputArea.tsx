@@ -12,13 +12,12 @@ interface InputAreaProps {
 
 export const InputArea = ({
   onSubmit,
-  placeholder = "Message Noni-chan…",
+  placeholder = "Message Noni…",
   disabled = false,
 }: InputAreaProps) => {
   const [query, setQuery] = useState("");
 
   const handleChange = (value: string) => {
-    // Mouse SGR sequences can leak into TextInput — drop them.
     if (looksLikeMouseLeak(value)) return;
     setQuery(value);
   };
@@ -32,29 +31,37 @@ export const InputArea = ({
 
   return (
     <Box
-      flexDirection="row"
+      flexDirection="column"
       width="100%"
-      borderStyle="round"
-      borderColor={disabled ? theme.dim : theme.border}
-      borderBackgroundColor={theme.bgInput}
-      paddingX={1}
-      marginTop={1}
-      backgroundColor={theme.bgInput}
+      marginTop={0}
+      backgroundColor={theme.bg}
     >
-      <Text
-        color={disabled ? theme.dim : theme.prompt}
-        bold
+      <Text color={theme.borderSoft} backgroundColor={theme.bg}>
+        {"─".repeat(48)}
+      </Text>
+      <Box
+        flexDirection="row"
+        width="100%"
+        paddingX={1}
         backgroundColor={theme.bgInput}
       >
-        ❯{" "}
-      </Text>
-      <TextInput
-        value={query}
-        onChange={handleChange}
-        onSubmit={handleSubmit}
-        placeholder={disabled ? "Working…" : placeholder}
-        focus={!disabled}
-      />
+        <Text
+          color={disabled ? theme.dim : theme.prompt}
+          bold
+          backgroundColor={theme.bgInput}
+        >
+          ❯{" "}
+        </Text>
+        <Box flexGrow={1} backgroundColor={theme.bgInput}>
+          <TextInput
+            value={query}
+            onChange={handleChange}
+            onSubmit={handleSubmit}
+            placeholder={disabled ? "Working…" : placeholder}
+            focus={!disabled}
+          />
+        </Box>
+      </Box>
     </Box>
   );
 };

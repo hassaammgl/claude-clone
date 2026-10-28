@@ -14,7 +14,7 @@ interface SidebarProps {
 }
 
 function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
@@ -43,6 +43,10 @@ export const Sidebar = ({
   const shortCwd = cwd.replace(process.env.HOME || "", "~");
   const bg = theme.bgSidebar;
   const inner = Math.max(8, width - 2);
+  const barW = Math.min(12, inner);
+  const barFilled = Math.round((pct / 100) * barW);
+  const bar =
+    "▓".repeat(barFilled) + "░".repeat(Math.max(0, barW - barFilled));
 
   return (
     <Box
@@ -60,7 +64,7 @@ export const Sidebar = ({
       backgroundColor={bg}
     >
       <Text color={theme.brand} bold backgroundColor={bg} wrap="truncate">
-        Session
+        session
       </Text>
       <Text color={theme.cream} backgroundColor={bg} wrap="truncate">
         {clip(modelLabel, inner)}
@@ -71,41 +75,23 @@ export const Sidebar = ({
 
       <Box marginTop={1} flexDirection="column" backgroundColor={bg}>
         <Text color={theme.brand} bold backgroundColor={bg} wrap="truncate">
-          Context
+          context
         </Text>
-        <Text color={theme.cream} backgroundColor={bg} wrap="truncate">
-          {clip(`${total.toLocaleString()} tokens`, inner)}
-        </Text>
-        <Text color={theme.yellow} backgroundColor={bg} wrap="truncate">
-          {pct}% used
+        <Text color={theme.accent} backgroundColor={bg} wrap="truncate">
+          {clip(bar, inner)}
         </Text>
         <Text color={theme.muted} backgroundColor={bg} wrap="truncate">
-          {clip(
-            `↑${formatTokens(tokens.input)} ↓${formatTokens(tokens.output)}`,
-            inner,
-          )}
-        </Text>
-        <Text color={theme.dim} backgroundColor={bg} wrap="truncate">
-          $0.00
-        </Text>
-      </Box>
-
-      <Box marginTop={1} flexDirection="column" backgroundColor={bg}>
-        <Text color={theme.brand} bold backgroundColor={bg} wrap="truncate">
-          LSP
-        </Text>
-        <Text color={theme.dim} backgroundColor={bg} wrap="truncate">
-          disabled
+          {clip(`${pct}% · ${formatTokens(total)}`, inner)}
         </Text>
       </Box>
 
       <Box flexGrow={1} backgroundColor={bg} />
 
       <Text color={theme.muted} backgroundColor={bg} wrap="truncate">
-        {clip(`${shortCwd}:${branch}`, inner)}
+        {clip(branch ? `⎇ ${branch}` : shortCwd, inner)}
       </Text>
       <Text color={theme.dim} backgroundColor={bg} wrap="truncate">
-        {clip(`● Noni ${version}`, inner)}
+        {clip(`noni ${version}`, inner)}
       </Text>
     </Box>
   );

@@ -3,12 +3,13 @@ import type { AgentLoopCallbacks } from "./callbacks";
 import type { PermissionEngine } from "../permissions/engine";
 import { loadSettings, saveSettings } from "../config/settings";
 import { getToolDefinitions } from "../tools/index";
-import { isRecord } from "./providers/types";
 import { buildHelpText } from "./system-prompt";
 import { clearSessionForCwd, saveSession } from "./session-store";
-
-const BYTES_PER_GIB = 1024 * 1024 * 1024;
-const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
+import {
+  formatModelSize,
+  getOllamaBaseUrl,
+  listOllamaModels,
+} from "../ollama/models";
 
 export interface SlashCommandHost {
   context: SessionContext;
@@ -24,45 +25,19 @@ type SlashHandler = (
   args: string[],
 ) => void | Promise<void>;
 
-interface OllamaModelInfo {
-  name: string;
-  size: number;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isOllamaModelInfo(value: unknown): value is OllamaModelInfo {
-  return (
-    isRecord(value) &&
-    typeof value.name === "string" &&
-    typeof value.size === "number"
-  );
-}
-
-async function listOllamaModels(baseUrl: string): Promise<OllamaModelInfo[]> {
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/tags`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch models from Ollama at ${baseUrl}`);
-  }
-  const data: unknown = await res.json();
-  if (!isRecord(data) || !Array.isArray(data.models)) {
-    return [];
-  }
-  return data.models.filter(isOllamaModelInfo);
-}
-
 function formatModelsList(
-  models: OllamaModelInfo[],
+  models: Awaited<ReturnType<typeof listOllamaModels>>,
   baseUrl: string,
   currentModel: string,
 ): string {
   const formattedList = models
     .map((model) => {
-      const sizeGb = (model.size / BYTES_PER_GIB).toFixed(2);
       const active = model.name === currentModel ? " *active*" : "";
-      return `- ${model.name} (${sizeGb} GB)${active}`;
+      return `- ${model.name} (${formatModelSize(model.size)})${active}`;
     })
     .join("\n");
   return `Available Ollama models at ${baseUrl}:\n${formattedList}\n\nTo switch model, type: \`/models <model-name>\``;
@@ -90,10 +65,7 @@ async function handleModelsCommand(
   args: string[],
 ): Promise<void> {
   const settings = loadSettings();
-  const baseUrl =
-    process.env.OLLAMA_BASE_URL ||
-    settings.ollamaBaseUrl ||
-    DEFAULT_OLLAMA_BASE_URL;
+  const baseUrl = getOllamaBaseUrl();
 
   try {
     if (args.length > 0) {
