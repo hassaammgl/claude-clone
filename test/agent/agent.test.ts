@@ -20,6 +20,23 @@ function makeUi(warnings: string[]): AgentUI {
     };
 }
 
+describe("Agent streaming", () => {
+    test("always asks Ollama for a streamed response", async () => {
+        let requestedStream: unknown;
+        const ollama = {
+            async chat(req: any) {
+                requestedStream = req.stream;
+                return (async function* () {
+                    yield { message: { content: "ok" }, done: true, done_reason: "stop" };
+                })();
+            },
+        } as any;
+
+        await new Agent(ollama, "fake", makeUi([]), process.cwd()).run("hi");
+        expect(requestedStream).toBe(true);
+    });
+});
+
 describe("Agent model timeout", () => {
     test("retries the request with half context when the model times out before output", async () => {
         const contexts: number[] = [];
