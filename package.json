@@ -1,6 +1,6 @@
 {
   "name": "noni-chan",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Agentic Coding CLI (Noni-chan CLI) — web search, docs guard, nested todos and background jobs.",
   "type": "module",
   "module": "index.ts",

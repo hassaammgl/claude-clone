@@ -65,7 +65,7 @@ describe("BashTool background jobs", () => {
 
     test("wait returns still-running with a tail when the job needs longer", async () => {
         const { jobs, tool } = makeTool();
-        const out = await tool.run({ command: "echo first; sleep 2; echo second", timeout_seconds: 1 });
+        const out = await tool.run({ command: "echo first; sleep 3; echo second", timeout_seconds: 1 });
         const id = /Job (\d+)/.exec(out)?.[1]!;
 
         const waited = await tool.run({ action: "wait", job_id: id, timeout_seconds: 1 });
