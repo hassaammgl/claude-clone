@@ -1,21 +1,53 @@
 {
-  "name": "noni-chan-ai",
-  "module": "index.ts",
+  "name": "noni-chan-tui",
+  "version": "0.1.0",
+  "description": "Noni — a terminal coding agent with web search, docs guard, nested todos and background jobs.",
   "type": "module",
-  "private": true,
+  "module": "index.ts",
+  "bin": {
+    "noni": "bin/noni.js",
+    "noni-chan-tui": "bin/noni.js"
+  },
+  "files": [
+    "bin",
+    "index.ts",
+    "src",
+    "README.md",
+    "TOOLS.md"
+  ],
   "scripts": {
     "dev": "bun run --watch index.ts",
-    "test": "bun test"
+    "start": "bun index.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "prepublishOnly": "bun run typecheck && bun test"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "tui",
+    "ollama",
+    "bun"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hassaammgl/claude-clone.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hassaammgl/claude-clone/issues"
+  },
+  "homepage": "https://github.com/hassaammgl/claude-clone#readme",
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.1.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.4.0",
-    "@modelcontextprotocol/server": "^2.4.0",
     "ollama": "^0.6.4"
   }
 }
