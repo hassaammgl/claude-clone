@@ -106,11 +106,13 @@ A JS/TS/Python file that newly imports a third-party package is blocked until yo
 ```json
 {"action":"wait","job_id":"1","timeout_seconds":120}
 {"action":"status","job_id":"1"}
-{"action":"list"}
+{"action":"jobs"}
 {"action":"kill","job_id":"1"}
 ```
 
 The agent can work on other todos while a job runs. Jobs are stopped when the app exits.
+
+`action=jobs` lists background jobs only. For folders use the `list_dir` tool; for files use `read_file`, `glob` or `grep`.
 
 ## Configuration
 

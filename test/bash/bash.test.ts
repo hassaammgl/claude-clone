@@ -35,7 +35,7 @@ describe("BashTool timeout", () => {
         expect(tool.dangerousFor({ action: "kill" })).toBe(true);
         expect(tool.dangerousFor({ action: "wait" })).toBe(false);
         expect(tool.dangerousFor({ action: "status" })).toBe(false);
-        expect(tool.dangerousFor({ action: "list" })).toBe(false);
+        expect(tool.dangerousFor({ action: "jobs" })).toBe(false);
     });
 });
 
@@ -76,13 +76,13 @@ describe("BashTool background jobs", () => {
         expect(jobs.get(id).status).toBe("done");
     });
 
-    test("start/status/list/kill work", async () => {
+    test("start/status/jobs/kill work", async () => {
         const { jobs, tool } = makeTool();
         const started = await tool.run({ action: "start", command: "sleep 5" });
         const id = /Job (\d+)/.exec(started)?.[1]!;
 
         expect(await tool.run({ action: "status", job_id: id })).toContain(`job ${id} running`);
-        expect(await tool.run({ action: "list" })).toContain(`job ${id} running`);
+        expect(await tool.run({ action: "jobs" })).toContain(`job ${id} running`);
         expect(await tool.run({ action: "kill", job_id: id })).toContain(`Killed job ${id}`);
         expect(jobs.get(id).status).toBe("killed");
     });
@@ -92,5 +92,11 @@ describe("BashTool background jobs", () => {
         await expect(tool.run({ action: "run", command: "  " })).rejects.toThrow(/command is empty/);
         await expect(tool.run({ action: "wait" })).rejects.toThrow(/job_id is required/);
         await expect(tool.run({ action: "status", job_id: "999" })).rejects.toThrow(/unknown job id/);
+    });
+
+    test("list/list_dir are redirected to the right tools", async () => {
+        const { tool } = makeTool();
+        await expect(tool.run({ action: "list" })).rejects.toThrow(/For background jobs use action=jobs/);
+        await expect(tool.run({ action: "list_dir" })).rejects.toThrow(/use the list_dir tool/);
     });
 });

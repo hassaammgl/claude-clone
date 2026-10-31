@@ -4,7 +4,7 @@ import { Tool } from "./Tool";
 const DEFAULT_GRACE_S = 30;
 const DEFAULT_WAIT_S = 120;
 const MAX_TIMEOUT_S = 600;
-const ACTIONS = ["run", "start", "wait", "status", "kill", "list"] as const;
+const ACTIONS = ["run", "start", "wait", "status", "jobs", "kill"] as const;
 
 /** Explicit timeout clamp; invalid/zero pe fallback. */
 export function timeoutFor(requested?: unknown, fallback = DEFAULT_GRACE_S): number {
@@ -25,7 +25,7 @@ function requireCommand(args: Record<string, any>): string {
 
 function requireJobId(args: Record<string, any>): string {
     const id = String(args.job_id ?? "").trim();
-    if (!id) throw new Error("job_id is required for this action (use action=list)");
+    if (!id) throw new Error("job_id is required for this action (use action=jobs to see job ids)");
     return id;
 }
 
@@ -63,11 +63,12 @@ const RISKS: { re: RegExp; msg: string }[] = [
 export class BashTool extends Tool {
     name = "bash";
     description =
-        "Run a shell command in the workspace. Use for git, scripts, builds, tests, installs, grep. " +
-        "Do NOT use it for reading or editing files (use read_file/edit_file). Commands must not be interactive. " +
+        "Run a shell command in the workspace. Use for git, scripts, builds, tests, installs. " +
+        "For reading files use read_file, for folders use list_dir, and for finding files use glob/grep — NOT bash. " +
+        "Commands must not be interactive. " +
         `action=run (default) waits up to timeout_seconds (${DEFAULT_GRACE_S}s), then moves the process to the background instead of killing it. ` +
-        "Use action=wait/status/list to track background jobs, action=start to background immediately, action=kill to stop one. " +
-        `Long waits can go up to ${MAX_TIMEOUT_S}s. Never use sudo or rm unless the user asked for it.`;
+        "Use action=wait/status/jobs to track background jobs, action=start to background immediately, action=kill to stop one. " +
+        `action=jobs lists background jobs only, never files. Long waits can go up to ${MAX_TIMEOUT_S}s. Never use sudo or rm unless the user asked for it.`;
     parameters = {
         type: "object",
         properties: {
@@ -76,7 +77,7 @@ export class BashTool extends Tool {
                 enum: [...ACTIONS],
                 description:
                     "run (default): wait, then background. start: background now. wait: wait for a job. " +
-                    "status: one job + output. list: all jobs. kill: stop a job.",
+                    "status: one job + output. jobs: all background jobs (NOT files — use the list_dir tool for folders). kill: stop a job.",
             },
             command: { type: "string", description: "Shell command for action=run/start" },
             job_id: { type: "string", description: "Job id from a previous run/start (for wait/status/kill)" },
@@ -166,12 +167,12 @@ export class BashTool extends Tool {
 
             case "status": {
                 const id = String(args.job_id ?? "").trim();
-                if (!id) return this.jobs.render();
+                if (!id) return `No job_id given. Background jobs:\n${this.jobs.render()}`;
                 const job = this.jobs.get(id);
                 return `${this.jobs.describe(job)}\n${this.jobs.output(job, 8_000)}`;
             }
 
-            case "list":
+            case "jobs":
                 return this.jobs.render();
 
             case "kill": {
@@ -185,6 +186,12 @@ export class BashTool extends Tool {
             }
 
             default:
+                if (action === "list" || action === "list_dir" || action === "ls") {
+                    throw new Error(
+                        `unknown action: ${action}. For folders use the list_dir tool; for files use read_file/glob/grep. ` +
+                            "For background jobs use action=jobs.",
+                    );
+                }
                 throw new Error(`unknown action: ${action}. Use one of: ${ACTIONS.join(", ")}`);
         }
     }
