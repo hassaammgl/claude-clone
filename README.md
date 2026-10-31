@@ -1,20 +1,20 @@
-# noni-chan-tui
+# claude-clone
 
 Noni is a terminal coding agent: web search/fetch, docs guard, nested todos, background jobs, MCP tools, and a small-model-friendly TUI.
 
 ## Run from npm
 
 ```bash
-npm install -g noni-chan-tui
-noni
+npm install -g claude-clone
+claude-clone
 ```
 
 Ya bina install:
 
 ```bash
-npx noni-chan-tui
+npx claude-clone
 # or
-bunx noni-chan-tui
+bunx claude-clone
 ```
 
 Noni **Bun** par chalti hai (npm wrapper Bun ko call karta hai). Bun na ho to:
