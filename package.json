@@ -1,11 +1,11 @@
 {
-  "name": "claude-clone",
-  "version": "0.1.0",
-  "description": "Noni — a terminal coding agent with web search, docs guard, nested todos and background jobs.",
+  "name": "noni-chan",
+  "version": "3.0.0",
+  "description": "Agentic Coding CLI (Noni-chan CLI) — web search, docs guard, nested todos and background jobs.",
   "type": "module",
   "module": "index.ts",
   "bin": {
-    "claude-clone": "bin/claude-clone.js"
+    "noni-chan": "bin/noni-chan.js"
   },
   "files": [
     "bin",
