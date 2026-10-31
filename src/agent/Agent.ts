@@ -1,5 +1,5 @@
 import type { Message, Ollama, ToolCall } from "ollama";
-import type { AgentLog } from "../log/SessionLogger";
+import type { AgentLog, LogType } from "../log/SessionLogger";
 import type { Tool } from "../tools/Tool";
 
 export interface AgentUI {
@@ -76,6 +76,10 @@ export class Agent {
         this.logs.push(log);
     }
 
+    private logEvent(type: LogType, data: Record<string, unknown> = {}) {
+        this.logs.forEach((log) => log.event?.(type, data));
+    }
+
     /** Har run ke system prompt me extra live context (jaise current todo plan). */
     addContext(provider: () => string) {
         this.contexts.push(provider);
@@ -146,18 +150,36 @@ export class Agent {
 ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
     }
 
-    /** LLM -> tools -> LLM ... jab tak tool call aati rahe */
     async run(input: string) {
         // Har run pe system prompt refresh, taake model/tools/date current rahe
         this.messages[0] = { role: "system", content: this.systemPrompt() };
         this.messages.push({ role: "user", content: input });
 
+        const startedAt = Date.now();
+        this.logEvent("agent_start", { model: this.model, messages: this.messages.length, think: this.think });
+        try {
+            await this.loop();
+        } finally {
+            this.logEvent("agent_end", { duration_ms: Date.now() - startedAt, messages: this.messages.length });
+        }
+    }
+
+    /** LLM -> tools -> LLM ... jab tak tool call aati rahe */
+    private async loop() {
         // Agar model timeout ho, isi run ke baaki calls half context pe karo
         let ctxOverride: number | undefined;
 
         while (true) {
             this.ui.waiting?.();
             let numCtx = ctxOverride ?? (await this.numCtx());
+            const chatStarted = Date.now();
+            this.logEvent("model_request", {
+                model: this.model,
+                num_ctx: numCtx,
+                num_predict: NUM_PREDICT,
+                messages: this.messages.length,
+                tools: this.listTools().length,
+            });
             const open = () =>
                 this.ollama.chat({
                     model: this.model,
@@ -178,8 +200,10 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
                 stream = await open();
             } catch (e) {
                 if (!isTimeoutError(e)) throw e;
+                const reason = e instanceof Error ? e.message : String(e);
                 numCtx = Math.max(4_096, Math.floor(numCtx / 2));
                 ctxOverride = numCtx;
+                this.logEvent("model_retry", { phase: "request", reason, num_ctx: numCtx });
                 this.ui.warn?.(`model request timed out; retrying with num_ctx=${numCtx}...`);
                 stream = await open();
             }
@@ -212,17 +236,28 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
             } catch (e) {
                 // Sirf tab retry karo jab abhi tak kuch screen pe na aaya ho
                 if (!started && !thinking && !calls.length && isTimeoutError(e)) {
+                    const reason = e instanceof Error ? e.message : String(e);
                     numCtx = Math.max(4_096, Math.floor(numCtx / 2));
                     ctxOverride = numCtx;
+                    this.logEvent("model_retry", { phase: "stream", reason, num_ctx: numCtx });
                     this.ui.warn?.(`model stream timed out; retrying with num_ctx=${numCtx}...`);
                     continue;
                 }
+                this.logEvent("error", { phase: "model", message: e instanceof Error ? e.message : String(e) });
                 throw e;
             }
 
             this.ui.waitingEnd?.();
             if (thinking) this.ui.thinkingEnd?.();
             if (started) this.ui.assistantEnd();
+            this.logEvent("model_response", {
+                duration_ms: Date.now() - chatStarted,
+                done_reason: doneReason,
+                content_chars: content.length,
+                thinking_chars: thinking.length,
+                tool_calls: calls.length,
+                num_ctx: numCtx,
+            });
             if (doneReason === "length") {
                 this.ui.warn?.(
                     `reply cut short: model limit hit (num_ctx=${numCtx}, num_predict=${NUM_PREDICT}). ` +
@@ -247,8 +282,12 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
     }
 
     private async execute(name: string, args: Record<string, any>): Promise<string> {
+        const started = Date.now();
         const tool = this.tools.get(name);
-        if (!tool) return this.fail(`unknown tool ${name}`, name);
+        if (!tool) {
+            this.logEvent("error", { phase: "tool", tool: name, message: "unknown tool" });
+            return this.fail(`unknown tool ${name}`, name, started);
+        }
 
         this.ui.toolCall(name, args);
         this.logs.forEach((log) => log.toolCall(name, args));
@@ -257,15 +296,24 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
             // Guards dangerous-confirm se pehle: blocked edit pe user ko bekar confirm na dikhe
             for (const guard of this.guards) {
                 const blocked = await guard.check(tool, args);
-                if (blocked) return this.fail(blocked, name);
+                if (blocked) {
+                    this.logEvent("guard_block", { tool: name, reason: blocked });
+                    return this.fail(blocked, name, started);
+                }
             }
 
             if (tool.dangerousFor(args)) {
                 const warnings = tool.warnings(args);
                 const preview = await tool.preview?.(args);
-                if (!(await this.ui.confirm(name, args, preview, warnings))) return this.fail("user denied this action", name);
+                if (!(await this.ui.confirm(name, args, preview, warnings))) {
+                    return this.fail("user denied this action", name, started);
+                }
                 if (warnings.length && !(await this.ui.confirmStrict())) {
-                    return this.fail("user denied this risky command. Do not retry it; ask the user what to do instead.", name);
+                    return this.fail(
+                        "user denied this risky command. Do not retry it; ask the user what to do instead.",
+                        name,
+                        started,
+                    );
                 }
             }
 
@@ -276,17 +324,21 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
             } finally {
                 this.ui.waitingEnd?.();
             }
+            const duration = Date.now() - started;
             this.ui.toolResult(out, false);
-            this.logs.forEach((log) => log.toolResult(name, out, false));
+            this.logs.forEach((log) => log.toolResult(name, out, false, duration));
             return out;
         } catch (e: any) {
-            return this.fail(e.message, name);
+            return this.fail(e.message, name, started);
         }
     }
 
-    private fail(msg: string, toolName?: string): string {
+    private fail(msg: string, toolName?: string, startedAt?: number): string {
         this.ui.toolResult(msg, true);
-        if (toolName) this.logs.forEach((log) => log.toolResult(toolName, msg, true));
+        if (toolName) {
+            const duration = startedAt === undefined ? undefined : Date.now() - startedAt;
+            this.logs.forEach((log) => log.toolResult(toolName, msg, true, duration));
+        }
         return `Error: ${msg}`;
     }
 }

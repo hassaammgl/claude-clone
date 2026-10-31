@@ -5,20 +5,29 @@ import { join } from "node:path";
 export interface AgentLog {
     assistant(content: string, thinking?: string): void;
     toolCall(name: string, args: Record<string, any>): void;
-    toolResult(name: string, result: string, isError: boolean): void;
+    toolResult(name: string, result: string, isError: boolean, durationMs?: number): void;
     error?(message: string): void;
+    event?(type: LogType, data: Record<string, unknown>): void;
 }
 
 export type LogType =
     | "session_start"
     | "session_end"
     | "input"
+    | "command"
+    | "agent_start"
+    | "agent_end"
     | "assistant"
     | "tool_call"
     | "tool_result"
     | "tool_error"
-    | "job"
+    | "guard_block"
     | "model"
+    | "model_request"
+    | "model_response"
+    | "model_retry"
+    | "mcp"
+    | "job"
     | "error";
 
 const MAX_FIELD = 20_000;
@@ -87,6 +96,14 @@ export class SessionLogger implements AgentLog {
         this.log("input", { text, command: text.startsWith("/") });
     }
 
+    command(text: string): void {
+        this.log("command", { text });
+    }
+
+    event(type: LogType, data: Record<string, unknown> = {}): void {
+        this.log(type, data);
+    }
+
     model(model: string): void {
         this.log("model", { model });
     }
@@ -108,8 +125,8 @@ export class SessionLogger implements AgentLog {
         this.log("tool_call", { name, args: safeValue(args ?? {}) });
     }
 
-    toolResult(name: string, result: string, isError: boolean): void {
-        this.log(isError ? "tool_error" : "tool_result", { name, result });
+    toolResult(name: string, result: string, isError: boolean, durationMs?: number): void {
+        this.log(isError ? "tool_error" : "tool_result", { name, result, duration_ms: durationMs });
     }
 
     error(message: string): void {

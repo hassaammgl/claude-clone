@@ -128,7 +128,7 @@ MCP servers are read from `mcp.json` in the working directory.
 
 ## Logs
 
-Every session writes JSONL to `logs/session-<timestamp>-<pid>.jsonl` (ignored by git). Events include inputs, commands, assistant messages, tool calls, tool results, job start/finish and errors.
+Every session writes JSONL to `logs/session-<timestamp>-<pid>.jsonl` (ignored by git). Events include inputs, slash commands, agent start/end, model requests/responses, tool calls and results (with duration), guard blocks, MCP loads, background jobs and errors.
 
 ```bash
 /logs

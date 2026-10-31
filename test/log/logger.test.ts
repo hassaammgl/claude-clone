@@ -85,14 +85,29 @@ describe("SessionLogger", () => {
         expect(lines[1]).toContain("input text=three");
     });
 
+    test("writes commands and generic agent/model events", async () => {
+        const logger = new SessionLogger(await tempRoot());
+        logger.command("/model qwen3.5:2b");
+        logger.event("model_request", { model: "qwen3.5:2b", num_ctx: 32_768, tools: 13 });
+        logger.event("guard_block", { tool: "write_file", reason: "zod docs missing" });
+        await logger.flush();
+
+        const events = await readEvents(logger.path);
+        expect(events.map((e) => e.type)).toEqual(["command", "model_request", "guard_block"]);
+        expect(events[1].num_ctx).toBe(32_768);
+        expect(events[2].tool).toBe("write_file");
+    });
+
     test("formatLogLine handles broken JSON", () => {
         expect(formatLogLine("not json")).toBe("not json");
     });
 });
 
 describe("Agent logging", () => {
-    test("logs tool calls/results and the final assistant message", async () => {
+    test("logs tool calls/results, model events and the final assistant message", async () => {
         const events: string[] = [];
+        const types: string[] = [];
+        let toolDuration: number | undefined;
         const logger: AgentLog = {
             assistant(content) {
                 events.push(`assistant:${content}`);
@@ -100,11 +115,15 @@ describe("Agent logging", () => {
             toolCall(name) {
                 events.push(`call:${name}`);
             },
-            toolResult(name, _result, isError) {
+            toolResult(name, _result, isError, durationMs) {
                 events.push(`result:${name}:${isError}`);
+                toolDuration = durationMs;
             },
             error(message) {
                 events.push(`error:${message}`);
+            },
+            event(type) {
+                types.push(type);
             },
         };
 
@@ -151,6 +170,10 @@ describe("Agent logging", () => {
         await agent.run("write it");
 
         expect(events).toEqual(["call:write_file", "result:write_file:false", "assistant:done"]);
+        expect(toolDuration).toBeGreaterThanOrEqual(0);
+        expect(types).toEqual(
+            expect.arrayContaining(["agent_start", "model_request", "model_response", "agent_end"]),
+        );
     });
 
     test("logs a failing tool as an error result", async () => {

@@ -107,6 +107,7 @@ agent.addGuard(new DocsGuard(docs, cwd));
 // Plan har run ke system prompt me, taake model apne tasks na bhoole
 agent.addContext(() => (todos.size ? todos.render(6_000) : ""));
 
+const mcpTools = await mcp.load(join(cwd, "mcp.json"));
 agent.addTools(
   new ReadFileTool(cwd),
   new ListDirTool(cwd),
@@ -126,7 +127,7 @@ agent.addTools(
     new RegistrySource(), // npm / PyPI
     new WebDocsSource(search), // last resort
   ]),
-  ...(await mcp.load(join(cwd, "mcp.json"))),
+  ...mcpTools,
 );
 
 let busy = false;
@@ -151,6 +152,7 @@ ui.onExit(async () => {
 });
 
 logger.sessionStart(agent.model, agent.listTools().length);
+logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
 ui.banner(agent.model, agent.listTools().length, todos.size);
 
 while (true) {
@@ -162,6 +164,7 @@ while (true) {
   }
   if (!input) continue;
   logger.input(input);
+  if (input.startsWith("/")) logger.command(input);
 
   if (input === "/exit") ui.close();
   else if (input === "/clear") agent.reset();
@@ -204,6 +207,7 @@ while (true) {
         logger.log("job", { event: "kill", id: job.id, status: job.status, command: job.command });
         ui.log(`job ${job.id}: ${job.status}`);
       } catch (e: any) {
+        logger.error(e.message);
         ui.error(e.message);
       }
     }
