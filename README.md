@@ -1,6 +1,6 @@
 # noni-chan
 
-**Agentic coding CLI for the terminal.** Local Ollama models, web search, docs-aware edits, nested todos, background jobs, MCP tools, local voice (TTS + STT), and a small-model-friendly TUI.
+**Agentic coding CLI for the terminal.** Local Ollama models, web search, docs-aware edits, nested todos, background jobs, MCP tools, and a small-model-friendly TUI.
 
 Noni runs on [Bun](https://bun.sh). The npm wrapper starts it for you.
 
@@ -11,7 +11,6 @@ Requirements:
 - **Bun** 1.1+
 - **Ollama** running locally (`ollama serve`)
 - Optional: **SearXNG** for web search (DuckDuckGo fallback works without it)
-- Optional voice: **ffmpeg** (STT decode + mic recording) and an audio player (`paplay`, `pw-play`, `ffplay`, or `mpv`)
 
 ```bash
 # Bun install (if you don't have it)
@@ -42,7 +41,6 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Nested todos** — plan tasks and subtasks, iterate with `next`/`done`.
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
 - **MCP tools** — load extra tools from `mcp.json`.
-- **Local voice** — assistant replies spoken by a local TTS model; mic or audio file to text with Whisper. No cloud, no keys.
 - **Session logs** — live in-TUI event feed (memory only), optional JSONL files.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
@@ -58,12 +56,6 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/jobs kill <id>` | stop a background job |
 | `/logs [n]` | last n events (in-memory) |
 | `/logs live` | live TUI event feed toggle |
-| `/say <text>` | speak text out loud (en/hi) |
-| `/listen [sec]` | record from mic (default 6s), transcribe, send to agent |
-| `/listen [sec] [en\|hi\|ur]` | same, with an explicit spoken language |
-| `/voice` | auto-speak status + models |
-| `/voice on\|off` | toggle auto-speak |
-| `/voice stop` | stop current speech |
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
 | `/think` | toggle model thinking |
@@ -81,25 +73,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `read_docs` | local package → pydoc/go doc/man/headers → npm/PyPI → web |
 | `todo` | nested plan: `plan`, `add`, `next`, `done`, `update`, `remove`, `clear` |
 | `system_info` | OS, CPU, RAM, disk, battery, uptime |
-| `speak` | local TTS (English/Hindi); code blocks skipped |
-| `transcribe` | local Whisper STT for an audio/video file or URL |
 | MCP tools | anything enabled in `mcp.json` |
-
-### Voice
-
-Voice is local: [Transformers.js](https://github.com/huggingface/transformers.js) runs ONNX models on your machine. Nothing is uploaded.
-
-- **Auto-speak is ON by default.** Every assistant reply is spoken after the text is printed; `/voice off` stops that.
-- **TTS models** — `Xenova/mms-tts-eng` and `Xenova/mms-tts-hin`, downloaded once on first use (~100 MB each) into `~/.cache/noni/models`.
-- **STT model** — `Xenova/whisper-tiny` (multilingual), downloaded on first `/listen` or `transcribe`.
-- **`/listen`** records a fixed number of seconds from the default mic (`ffmpeg` via PulseAudio, ALSA fallback), transcribes it, and sends the text to the agent. Pass a language for non-English speech (`/listen 8 hi`) or set `NONI_STT_LANG=hi`; Whisper defaults to English when no language is given.
-- **`speak` / `transcribe`** are agent tools, so the model can read an audio file or say something when you ask for it.
-- **Playback** tries `paplay`, `pw-play`, `aplay`, `ffplay`, then `mpv`.
-- First model load takes a while (download + ONNX init); after that it is cached.
-
-Urdu/Arabic script TTS is **not** available (no ONNX Urdu voice). Urdu *speech to text* works through Whisper. Hinglish replies usually get spoken with the Hindi voice when Devanagari is present, otherwise English.
-
-Code blocks, URLs and markdown are stripped before speaking, and long replies are chunked by sentence so the voice does not run away.
 
 ### Docs guard
 
@@ -153,15 +127,6 @@ The agent can work on other todos while a job runs. Jobs are stopped when the ap
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
 | `NONI_LOG_FILE` | off | `1` = JSONL file bhi likho |
 | `NONI_LOG_DIR` | `./logs` | log directory (sirf file mode me) |
-| `NONI_VOICE` | on | `off` = poora audio band (TTS + STT) |
-| `NONI_AUTO_SPEAK` | on | `off`/`0` = replies auto-speak na karo |
-| `NONI_MUTE` | off | `1` = synthesize but no playback (testing) |
-| `NONI_MODEL_DIR` | `~/.cache/noni/models` | voice model cache |
-| `NONI_TTS_MODEL_ENG` | `Xenova/mms-tts-eng` | English TTS model |
-| `NONI_TTS_MODEL_HIN` | `Xenova/mms-tts-hin` | Hindi TTS model |
-| `NONI_WHISPER_MODEL` | `Xenova/whisper-tiny` | STT model (`whisper-base` = better, slower) |
-| `NONI_STT_LANG` | `en` | default spoken language; `hi` for Hindi/Hinglish mic input |
-| `NONI_TTS_MAX_CHARS` | `1500` | max characters spoken per reply |
 
 MCP servers are read from `mcp.json` in the working directory.
 
@@ -220,7 +185,6 @@ src/todos/            nested task store
 src/jobs/             background job manager
 src/log/              in-memory event logger + live TUI feed
 src/search/           search providers + fallback engine
-src/audio/            local TTS, STT, mic recorder, audio player
 src/ui/               terminal UI
 ```
 
@@ -242,18 +206,8 @@ npm cache clean --force
 
 **Replies cut short** — the model hit its context/output limit. Use `/clear`, raise `OLLAMA_NUM_CTX`, or raise `OLLAMA_NUM_PREDICT`.
 
-**Voice says nothing** — check `/voice` (auto-speak ON), make sure a player exists (`paplay`, `pw-play`, `ffplay`, or `mpv`), and try `/say hello`. On Arch: `sudo pacman -S pipewire-pulse ffmpeg`.
-
-**`ffmpeg nahi mila`** — install ffmpeg; it is needed for `/listen`, mic recording, and `transcribe`. On Arch: `sudo pacman -S ffmpeg`.
-
-**`/listen` records silence** — confirm PulseAudio/PipeWire is running (`pactl info`) and the default source is your mic (`pactl list short sources`).
-
-**First voice reply is slow** — the model is downloading and initializing ONNX. Progress shows in the live log feed; later replies reuse the cache.
-
 ## Limitations
 
 - Ollama is the only provider right now (no Anthropic/Gemini/OpenAI adapters yet).
 - The docs guard sees import lines, not every dynamic API use.
 - Very small models can still produce malformed tool calls. 2B+ models are more reliable.
-- Voice TTS is English + Hindi only; Urdu script is skipped (STT still handles Urdu speech).
-- `whisper-tiny` is fast but rough; set `NONI_WHISPER_MODEL=Xenova/whisper-base` for better accuracy.

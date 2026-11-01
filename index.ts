@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { rm } from "node:fs/promises";
 import { Ollama } from "ollama";
 import { Agent } from "./src/agent/Agent";
 import { McpManager } from "./src/mcp/McpManager";
@@ -26,10 +25,6 @@ import { RegistrySource, WebDocsSource } from "./src/docs/RemoteSources";
 import { ReadDocsTool } from "./src/tools/DocsTool";
 import { TodoStore } from "./src/todos/TodoStore";
 import { TodoTool } from "./src/tools/TodoTool";
-import { TextToSpeech } from "./src/audio/TextToSpeech";
-import { SpeechToText } from "./src/audio/SpeechToText";
-import { recordAudio } from "./src/audio/Recorder";
-import { SpeakTool, TranscribeTool } from "./src/tools/AudioTools";
 
 const cwd = process.cwd();
 const ui = new Tui();
@@ -45,7 +40,6 @@ const LIVE_LOG_TYPES = new Set<LogType>([
   "guard_block",
   "mcp",
   "job",
-  "voice",
 ]);
 
 const logger = new SessionLogger(cwd, {
@@ -63,13 +57,6 @@ const jobs = new JobManager((event, job) =>
     duration_ms: (job.endedAt ?? Date.now()) - job.startedAt,
   }),
 );
-
-const voiceStatus = (message: string, data?: Record<string, unknown>) =>
-  logger.event("voice", { event: "status", message, ...(data ?? {}) });
-const tts = new TextToSpeech(voiceStatus);
-const stt = new SpeechToText(voiceStatus);
-let autoSpeak = !["0", "off", "false", "no"].includes((process.env.NONI_AUTO_SPEAK ?? "").trim().toLowerCase());
-
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
 });
@@ -158,8 +145,6 @@ agent.addTools(
     new RegistrySource(), // npm / PyPI
     new WebDocsSource(search), // last resort
   ]),
-  new SpeakTool(tts),
-  new TranscribeTool(stt),
   ...mcpTools,
 );
 
@@ -170,7 +155,6 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  tts.stop();
   logger.sessionEnd();
   await jobs.closeAll();
   await logger.close();
@@ -188,24 +172,6 @@ ui.onExit(async () => {
 ui.banner(agent.model, agent.listTools().length, todos.size);
 logger.sessionStart(agent.model, agent.listTools().length);
 if (mcpTools.length) logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
-
-/** Ek user message agent ko bhejo + auto-speak. Normal prompt aur /listen dono yahi use karte hain. */
-async function runAgent(text: string) {
-  busy = true;
-  try {
-    const reply = await agent.run(text);
-    if (autoSpeak && reply.trim()) {
-      void tts.speak(reply, { interrupt: true }).catch((e: unknown) => {
-        logger.event("voice", { event: "error", message: e instanceof Error ? e.message : String(e) });
-      });
-    }
-  } catch (e: any) {
-    logger.error(e.message);
-    ui.error(e.message);
-  } finally {
-    busy = false;
-  }
-}
 
 while (true) {
   let input: string;
@@ -236,12 +202,6 @@ while (true) {
         "/logs live       live event feed ON/OFF toggle",
         "/logs on|off     live feed ko seedha on/off",
         "/logs file       file logging status",
-        "/say <text>      TTS se bolo (en/hi)",
-        "/listen [sec]    mic se record + transcribe + agent ko bhejo",
-        "/listen [sec] hi 18s tak size, 6s default; hi|en|ur language",
-        "/voice           auto-speak status",
-        "/voice on|off    auto-speak toggle",
-        "/voice stop      chal rahi speech rok do",
         "/model <name>    model switch",
         "/clear           chat history clear (plan rehta hai)",
         "/think           thinking on/off",
@@ -295,68 +255,20 @@ while (true) {
         ].join("\n"),
       );
     }
-  } else if (input === "/voice" || input.startsWith("/voice ")) {
-    const arg = input.split(/\s+/)[1] ?? "";
-    if (arg === "on") {
-      autoSpeak = true;
-      ui.log("auto-speak: ON");
-    } else if (arg === "off") {
-      autoSpeak = false;
-      tts.stop();
-      ui.log("auto-speak: OFF");
-    } else if (arg === "stop") {
-      tts.stop();
-      ui.log("speech stopped");
-    } else {
-      ui.log(
-        [
-          `auto-speak: ${autoSpeak ? "ON" : "OFF"}`,
-          `tts en: ${process.env.NONI_TTS_MODEL_ENG ?? "Xenova/mms-tts-eng"}`,
-          `tts hi: ${process.env.NONI_TTS_MODEL_HIN ?? "Xenova/mms-tts-hin"}`,
-          `stt:    ${process.env.NONI_WHISPER_MODEL ?? "Xenova/whisper-tiny"} (lang: ${process.env.NONI_STT_LANG ?? "en default"})`,
-          "/voice on|off|stop · /say <text> · /listen [sec] [en|hi|ur]",
-        ].join("\n"),
-      );
-    }
-  } else if (input === "/say" || input.startsWith("/say ")) {
-    const text = input.slice(4).trim();
-    if (!text) ui.warn("usage: /say <text>");
-    else {
-      try {
-        ui.log(await tts.speak(text, { interrupt: true }));
-      } catch (e: any) {
-        logger.error(e.message);
-        ui.error(`voice: ${e.message}`);
-      }
-    }
-  } else if (input === "/listen" || input.startsWith("/listen ")) {
-    const args = input.split(/\s+/).slice(1);
-    const seconds = Number(args[0]) || 6;
-    const language = ["en", "hi", "ur"].includes(args[1] ?? "") ? args[1] : undefined;
-    try {
-      const file = await recordAudio(seconds, voiceStatus);
-      try {
-        const text = await stt.transcribe(file, language ? { language } : {});
-        if (!text) {
-          ui.warn("kuch samajh nahi aaya — dobara /listen try karo");
-        } else {
-          ui.log(`🎤 ${text}`);
-          logger.input(text);
-          await runAgent(text);
-        }
-      } finally {
-        await rm(file, { force: true }).catch(() => {});
-      }
-    } catch (e: any) {
-      logger.error(e.message);
-      ui.error(`voice: ${e.message}`);
-    }
   } else if (input.startsWith("/model")) {
     agent.model = input.split(" ")[1] ?? agent.model;
     logger.model(agent.model);
     ui.log(`model: ${agent.model}`);
   } else {
-    await runAgent(input);
+    busy = true;
+    try {
+      await agent.run(input);
+    } catch (e: any) {
+      logger.error(e.message);
+      ui.error(e.message);
+    } finally {
+      busy = false;
+    }
   }
   if (closing) break;
 }

@@ -28,7 +28,6 @@ export type LogType =
     | "model_retry"
     | "mcp"
     | "job"
-    | "voice"
     | "error";
 
 export interface LogEvent {
