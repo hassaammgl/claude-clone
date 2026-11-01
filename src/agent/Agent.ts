@@ -150,7 +150,7 @@ export class Agent {
 ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
     }
 
-    async run(input: string) {
+    async run(input: string): Promise<string> {
         // Har run pe system prompt refresh, taake model/tools/date current rahe
         this.messages[0] = { role: "system", content: this.systemPrompt() };
         this.messages.push({ role: "user", content: input });
@@ -158,14 +158,14 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
         const startedAt = Date.now();
         this.logEvent("agent_start", { model: this.model, messages: this.messages.length, think: this.think });
         try {
-            await this.loop();
+            return await this.loop();
         } finally {
             this.logEvent("agent_end", { duration_ms: Date.now() - startedAt, messages: this.messages.length });
         }
     }
 
     /** LLM -> tools -> LLM ... jab tak tool call aati rahe */
-    private async loop() {
+    private async loop(): Promise<string> {
         // Agar model timeout ho, isi run ke baaki calls half context pe karo
         let ctxOverride: number | undefined;
 
@@ -272,7 +272,7 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
             if (calls.length) reply.tool_calls = calls;
             this.messages.push(reply);
 
-            if (!calls.length) return;
+            if (!calls.length) return content;
 
             for (const call of calls) {
                 const { name, arguments: args } = call.function;
