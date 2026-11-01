@@ -175,6 +175,18 @@ export class Tui implements AgentUI {
         return input.trim();
     }
 
+    /** Agent ka sawaal (ask_user tool): wahi input bar, pr sawaal dikha ke */
+    async ask(question: string, options: string[] = []): Promise<string> {
+        this.waitingEnd();
+        this.endLine();
+        this.ruleShown = false;
+        console.log(`  ${cyan("?")} ${question}`);
+        options.forEach((option, i) => console.log(`    ${String(i + 1).padStart(2)}. ${option}`));
+        const answer = (await this.rl.question(`  ${cyan("you")} `)).trim();
+        if (options.length && /^\d+$/.test(answer)) return options[Number(answer) - 1] ?? answer;
+        return answer;
+    }
+
     /** Spinner jab tak pehla token na aaye */
     waiting(label = "thinking") {
         this.waitingEnd();

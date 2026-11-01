@@ -40,7 +40,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Docs guard** — blocks JS/TS/Python edits that add a new third-party import until `read_docs` was called.
 - **Nested todos** — plan tasks and subtasks, iterate with `next`/`done`.
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
-- **MCP tools** — load extra tools from `mcp.json`.
+- **MCP tools** — load extra tools from the global config `~/.config/noni-chan/config.json`.
 - **Session logs** — JSONL logs for inputs, tool calls, results, jobs and errors.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
@@ -65,14 +65,17 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | Tool | What it does |
 |---|---|
 | `read_file`, `list_dir` | read files / list folders |
-| `write_file`, `edit_file`, `delete_file` | modify workspace files (confirm + preview) |
+| `write_file`, `edit_file`, `replace_lines`, `delete_file` | modify workspace files (confirm + preview) |
+| `move_file`, `make_dir` | rename/move files, create folders |
+| `git` | `status`/`diff`/`log`/`show`/`branch` + `add`/`commit` (no push) |
+| `ask_user` | model ambiguous ho to guess karne ki jagah poochhta hai |
 | `bash` | shell commands; long ones move to background jobs |
 | `glob`, `grep` | find files / search contents |
 | `web_search`, `web_fetch` | search and read pages |
 | `read_docs` | local package → pydoc/go doc/man/headers → npm/PyPI → web |
 | `todo` | nested plan: `plan`, `add`, `next`, `done`, `update`, `remove`, `clear` |
 | `system_info` | OS, CPU, RAM, disk, battery, uptime |
-| MCP tools | anything enabled in `mcp.json` |
+| MCP tools | anything enabled in `~/.config/noni-chan/config.json` |
 
 ### Docs guard
 
@@ -120,13 +123,41 @@ The agent can work on other todos while a job runs. Jobs are stopped when the ap
 |---|---|---|
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama API |
 | `OLLAMA_MODEL` | — | skip the model picker |
-| `OLLAMA_NUM_CTX` | model max | context window cap |
+| `OLLAMA_NUM_CTX` | `llm.num_ctx` in config (default `"max"`) | context window override |
 | `OLLAMA_NUM_PREDICT` | `4096` | max generated tokens |
 | `OLLAMA_TEMPERATURE` | `0.4` | sampling temperature |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
 | `NONI_LOG_DIR` | `./logs` | session log directory |
 
-MCP servers are read from `mcp.json` in the working directory.
+MCP servers come from the global config at `~/.config/noni-chan/config.json` (or `$XDG_CONFIG_HOME/noni-chan/config.json`):
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "my-server": {
+        "command": "npx",
+        "args": ["-y", "some-mcp-server"],
+        "env": { "TOKEN": "..." },
+        "disabled": false
+      }
+    }
+  }
+}
+```
+
+`disabled: true` wale servers skip ho jate hain. File na ho to app bina MCP tools ke chalti hai.
+
+Same file me model defaults bhi hain — context length by default har model ki max hoti hai:
+
+```json
+{
+  "llm": { "num_ctx": "max" },
+  "mcp": { "servers": {} }
+}
+```
+
+`num_ctx` ko number (jaise `32768`) kar do to usi value pe cap ho jayegi. `OLLAMA_NUM_CTX` env isse bhi upar hai (emergency override).
 
 ## Logs
 

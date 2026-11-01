@@ -28,11 +28,27 @@ const EXT_LANG: Record<string, Lang> = {
 };
 
 // file likhne/badalne wale tools: naya code (after) aur purana (before) kahan se milega
-const GUARDED: Record<string, (a: Record<string, any>) => { before: string; after: string }> = {
+type GuardPair = { before: string; after: string };
+const GUARDED: Record<string, (a: Record<string, any>, root: string) => GuardPair | Promise<GuardPair>> = {
     write_file: (a) => ({ before: "", after: String(a.content ?? "") }),
     edit_file: (a) => ({ before: String(a.old_string ?? ""), after: String(a.new_string ?? "") }),
-    replace_lines: (a) => ({ before: "", after: String(a.new_content ?? "") }),
+    // replace_lines me purani lines file se padhna zaroori hai, warna already-present imports bhi "naye" lagte hain
+    replace_lines: async (a, root) => ({
+        before: await linesInRange(root, String(a.path ?? ""), Number(a.start_line), Number(a.end_line)),
+        after: String(a.new_content ?? ""),
+    }),
 };
+
+/** replace_lines ke liye file ki maujooda lines (guard ko before chahiye) */
+async function linesInRange(root: string, path: string, start: number, end: number): Promise<string> {
+    if (!path || !Number.isInteger(start) || start < 1 || !Number.isInteger(end)) return "";
+    try {
+        const lines = (await Bun.file(join(root, path)).text()).split("\n");
+        return lines.slice(start - 1, Math.max(start - 1, end)).join("\n");
+    } catch {
+        return ""; // file nahi mili: write_file jaisa hi treat karo
+    }
+}
 
 const JS_BUILTINS = new Set([...builtinModules.map((m) => m.split("/")[0]!), "bun"]);
 const MAX_BLOCKS = 2; // ek package pe itni baar roko, phir jane do (agar model name galat de raha ho to deadlock na ho)
@@ -95,7 +111,7 @@ export class DocsGuard implements Guard {
         const lang = EXT_LANG[extname(path).toLowerCase()];
         if (!lang) return;
 
-        const { before, after } = pick(args);
+        const { before, after } = await pick(args, this.root);
         const used = await this.packages(lang, after, path);
         const already = await this.packages(lang, before, path); // edit se pehle bhi jo import tha, wo naya nahi
         const missing = [...used].filter(

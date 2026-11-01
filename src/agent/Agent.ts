@@ -1,6 +1,7 @@
 import type { Message, Ollama, ToolCall } from "ollama";
 import type { AgentLog, LogType } from "../log/SessionLogger";
 import type { Tool } from "../tools/Tool";
+import type { LlmSettings } from "../config/Config";
 
 export interface AgentUI {
     assistantStart(): void;
@@ -60,6 +61,7 @@ export class Agent {
         public model: string,
         private ui: AgentUI,
         private cwd: string,
+        private llm: LlmSettings = {},
     ) {
         this.reset();
     }
@@ -89,10 +91,18 @@ export class Agent {
         return [...this.tools.values()];
     }
 
-    /** Model ki max context length. Env override ho to wahi, warna Ollama ke model_info se. */
+    /**
+     * Model ki context length. Pehle env, phir config (`llm.num_ctx`), warna model ki max.
+     * Default config `"max"` hai, isliye har model apni poori context se chalta hai.
+     */
     private async numCtx(): Promise<number> {
         const fromEnv = Number(process.env.OLLAMA_NUM_CTX);
         if (Number.isFinite(fromEnv) && fromEnv > 0) return Math.floor(fromEnv);
+
+        const configured = this.llm.num_ctx;
+        if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
+            return Math.floor(configured);
+        }
 
         const cached = this.ctxByModel.get(this.model);
         if (cached) return cached;
@@ -147,7 +157,10 @@ export class Agent {
 - Paths: relative to the working directory (e.g. src/index.ts). Don't wander outside it.
 - For battery, CPU, memory, disk and uptime, use the system_info tool. Never guess hardware numbers.
 - If the user asks about the system, answer from this block. Do not guess or contradict it.
-${extra ? `\n## Current plan (live)\n${extra}\n` : ""}`;
+${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
+## Reminder (always true)
+- NONI is female: every Hindi/Urdu verb about yourself is feminine — "kar rahi hoon", "bataungi", "dekhi thi", "chala rahi hoon".
+- One short dry joke is fine. Two is a stand-up set, and this is a terminal.`;
     }
 
     async run(input: string) {

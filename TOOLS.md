@@ -12,7 +12,7 @@ Legend: ✅ in code · ⚠️ listed as done but missing from code · ⬜ not st
 | `list_dir` | no | ✅ |
 | `write_file` (overwrites) | yes | ✅ |
 | `edit_file` | yes | ✅ |
-| `replace_lines` | yes | ⚠️ not in `src/tools/` |
+| `replace_lines` (1-based line range → `new_content`; empty = delete, `end_line = start_line - 1` = insert) | yes | ✅ |
 | `delete_file` | yes | ✅ |
 | `system_info` (OS, CPU, RAM, disk, battery, uptime) | no | ✅ |
 | `web_search` (SearXNG, DuckDuckGo fallback) | no | ✅ |
@@ -21,7 +21,7 @@ Legend: ✅ in code · ⚠️ listed as done but missing from code · ⬜ not st
 | `DocsGuard` (blocks new third-party imports until `read_docs`, 2 blocks max) | — | ✅ |
 | `todo` (nested plan, `next`/`done` iteration, `/todos` view) | no | ✅ |
 | `jobs` (background bash jobs, `/jobs`, `wait`/`status`/`kill`) | kill yes | ✅ |
-| MCP tools (from `mcp.json`) | yes | ✅ code, but no `mcp.json` present |
+| MCP tools (from `~/.config/noni-chan/config.json`) | yes | ✅ code |
 
 Note: `write_file` currently overwrites existing files, it is not "new file only".
 
@@ -46,11 +46,11 @@ Ye teeno milke Claude Code ka asli feel dete hain. Pehle yahi lagne chahiye.
 
 | Tool | Kaam | Dangerous? | Status |
 |---|---|---|---|
-| `move_file` | rename/move | yes | ⬜ |
-| `make_dir` | folder banana | yes | ⬜ |
-| `git` (status, diff, log, commit) | git ke liye alag safe tool, taake har cheez `bash` se na karni pade | commit/push pe yes | ⬜ |
+| `move_file` (missing parent dirs auto-create, destination overwrite nahi) | yes | ✅ |
+| `make_dir` | folder banana | yes | ✅ |
+| `git` (status/diff/log/show/branch + add/commit; push/reset jaan bujh ke nahi) | commit pe yes | ✅ |
 | `todo` | model apni task list khud likhe aur update kare, lambi tasks me kaam aata hai | no | ✅ (upar) |
-| `ask_user` | model confusion me ho to user se sawaal puchhe, guess na kare | no | ⬜ |
+| `ask_user` | model confusion me ho to user se sawaal puchhe, guess na kare | no | ✅ |
 
 ## Phase 3 — smart/agent features
 

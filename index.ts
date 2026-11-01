@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { Ollama } from "ollama";
 import { Agent } from "./src/agent/Agent";
 import { McpManager } from "./src/mcp/McpManager";
@@ -9,9 +8,14 @@ import {
   DeleteFileTool,
   EditFileTool,
   ListDirTool,
+  MakeDirTool,
+  MoveFileTool,
   ReadFileTool,
+  ReplaceLinesTool,
   WriteFileTool,
 } from "./src/tools/FileTool";
+import { GitTool } from "./src/tools/GitTool";
+import { AskUserTool } from "./src/tools/AskUserTool";
 import { Tui } from "./src/ui/Tui";
 import { SessionLogger } from "./src/log/SessionLogger";
 import { JobManager } from "./src/jobs/JobManager";
@@ -25,6 +29,7 @@ import { RegistrySource, WebDocsSource } from "./src/docs/RemoteSources";
 import { ReadDocsTool } from "./src/tools/DocsTool";
 import { TodoStore } from "./src/todos/TodoStore";
 import { TodoTool } from "./src/tools/TodoTool";
+import { loadConfig } from "./src/config/Config";
 
 const cwd = process.cwd();
 const logger = new SessionLogger(cwd);
@@ -92,7 +97,11 @@ async function pickModel(): Promise<string> {
   }
 }
 
-const agent = new Agent(ollama, await pickModel(), ui, cwd);
+// Global config (~/.config/noni-chan/config.json): model defaults + MCP servers
+const { config, path: configFile, error: configError } = await loadConfig();
+if (configError) ui.warn(`config.json padha nahi gaya (${configError}); defaults use kar rahi hoon`);
+
+const agent = new Agent(ollama, await pickModel(), ui, cwd, config.llm);
 agent.addLogger(logger);
 
 const search = new SearchEngine([
@@ -107,12 +116,17 @@ agent.addGuard(new DocsGuard(docs, cwd));
 // Plan har run ke system prompt me, taake model apne tasks na bhoole
 agent.addContext(() => (todos.size ? todos.render(6_000) : ""));
 
-const mcpTools = await mcp.load(join(cwd, "mcp.json"));
+const mcpTools = await mcp.load(config.mcp.servers);
 agent.addTools(
   new ReadFileTool(cwd),
   new ListDirTool(cwd),
   new WriteFileTool(cwd),
   new EditFileTool(cwd),
+  new ReplaceLinesTool(cwd),
+  new MoveFileTool(cwd),
+  new MakeDirTool(cwd),
+  new GitTool(cwd),
+  new AskUserTool((question, options) => ui.ask(question, options)),
   new DeleteFileTool(cwd),
   new BashTool(cwd, jobs),
   new GlobTool(cwd),
@@ -152,7 +166,7 @@ ui.onExit(async () => {
 });
 
 logger.sessionStart(agent.model, agent.listTools().length);
-logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
+logger.event("mcp", { tools: mcpTools.length, config: configFile });
 ui.banner(agent.model, agent.listTools().length, todos.size);
 
 while (true) {
