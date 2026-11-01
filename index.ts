@@ -13,7 +13,7 @@ import {
   WriteFileTool,
 } from "./src/tools/FileTool";
 import { Tui } from "./src/ui/Tui";
-import { SessionLogger } from "./src/log/SessionLogger";
+import { SessionLogger, type LogType } from "./src/log/SessionLogger";
 import { JobManager } from "./src/jobs/JobManager";
 import { WebFetchTool, WebSearchTool } from "./src/tools/WebTools";
 import { SearchEngine } from "./src/search/SearchEngine";
@@ -27,7 +27,26 @@ import { TodoStore } from "./src/todos/TodoStore";
 import { TodoTool } from "./src/tools/TodoTool";
 
 const cwd = process.cwd();
-const logger = new SessionLogger(cwd);
+const ui = new Tui();
+
+// TUI live feed me sirf system-level events; tool calls/results already apne format me dikhte hain
+const LIVE_LOG_TYPES = new Set<LogType>([
+  "agent_start",
+  "agent_end",
+  "model",
+  "model_request",
+  "model_response",
+  "model_retry",
+  "guard_block",
+  "mcp",
+  "job",
+]);
+
+const logger = new SessionLogger(cwd, {
+  onEvent: (line, event) => {
+    if (LIVE_LOG_TYPES.has(event.type)) ui.event(line);
+  },
+});
 const jobs = new JobManager((event, job) =>
   logger.log("job", {
     event,
@@ -41,7 +60,6 @@ const jobs = new JobManager((event, job) =>
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
 });
-const ui = new Tui();
 const mcp = new McpManager();
 
 const FALLBACK_MODEL = "qwen3.5:0.8b";
@@ -151,9 +169,9 @@ ui.onExit(async () => {
   process.exit(0);
 });
 
-logger.sessionStart(agent.model, agent.listTools().length);
-logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
 ui.banner(agent.model, agent.listTools().length, todos.size);
+logger.sessionStart(agent.model, agent.listTools().length);
+if (mcpTools.length) logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
 
 while (true) {
   let input: string;
@@ -180,7 +198,10 @@ while (true) {
         "/todos clear     plan hatao",
         "/jobs            background jobs",
         "/jobs kill <id>  job band karo",
-        "/logs [n]        last n log lines + file path",
+        "/logs [n]        last n events (in-memory, TUI me)",
+        "/logs live       live event feed ON/OFF toggle",
+        "/logs on|off     live feed ko seedha on/off",
+        "/logs file       file logging status",
         "/model <name>    model switch",
         "/clear           chat history clear (plan rehta hai)",
         "/think           thinking on/off",
@@ -212,9 +233,28 @@ while (true) {
       }
     }
   } else if (input === "/logs" || input.startsWith("/logs ")) {
-    const n = Number(input.split(/\s+/)[1]) || 20;
-    const lines = await logger.tail(n);
-    ui.log(`log: ${logger.path}\n${lines.join("\n") || "(empty)"}`);
+    const arg = input.split(/\s+/)[1] ?? "";
+
+    if (arg === "live" || arg === "on" || arg === "off") {
+      const next = arg === "live" ? !ui.liveLogs : arg === "on";
+      ui.setLiveLogs(next);
+      ui.log(`live logs: ${next ? "ON" : "OFF"}`);
+    } else if (arg === "file") {
+      ui.log(
+        logger.writesFile
+          ? `file logging: ON → ${logger.path}`
+          : "file logging: OFF (sirf memory + TUI). Chahiye to NONI_LOG_FILE=1 se chalao.",
+      );
+    } else {
+      const n = Number(arg) || 20;
+      const lines = await logger.tail(n);
+      ui.log(
+        [
+          `logs: ${logger.count} events in memory · live feed ${ui.liveLogs ? "ON" : "OFF"}`,
+          lines.join("\n") || "(empty)",
+        ].join("\n"),
+      );
+    }
   } else if (input.startsWith("/model")) {
     agent.model = input.split(" ")[1] ?? agent.model;
     logger.model(agent.model);

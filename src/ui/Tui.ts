@@ -69,8 +69,12 @@ export class Tui implements AgentUI {
     private lineOpen = false;
     private thinkingOpen = false;
     private spinner: ReturnType<typeof setInterval> | null = null;
+    private spinnerLabel: string | null = null;
     private frame = 0;
     private ruleShown = false;
+    private live = true;
+    private prompting = false;
+    private pending: string[] = [];
 
     private get width() {
         return Math.max(40, Math.min(process.stdout.columns || 80, 120));
@@ -92,7 +96,7 @@ export class Tui implements AgentUI {
         console.log();
         const plan = todos ? ` ${dim("·")} ${cyan(`${todos} todos`)}` : "";
         console.log(`  ${bold("✻ Noni")} ${dim("·")} ${cyan(model)} ${dim("·")} ${tools} tools${plan}`);
-        console.log(`  ${dim("/help  /tools  /todos  /jobs  /logs")}`);
+        console.log(`  ${dim("/help  /tools  /todos  /jobs  /logs  /logs live")}`);
         console.log(`  ${dim("/model <name>  /clear  /think  /exit")}`);
         console.log(`  ${this.rule()}`);
         this.ruleShown = true;
@@ -112,7 +116,7 @@ export class Tui implements AgentUI {
         });
 
         for (let tries = 0; tries < 3; tries++) {
-            const answer = (await this.rl.question(`  ${cyan("model")} ${dim(`[1-${models.length}]`)} `)).trim();
+            const answer = (await this.ask(`  ${cyan("model")} ${dim(`[1-${models.length}]`)} `)).trim();
             if (!answer) return fallback.name;
 
             const n = Number(answer);
@@ -133,6 +137,56 @@ export class Tui implements AgentUI {
         this.endLine();
         this.ruleShown = false;
         console.log(msg.split("\n").map((line) => dim(`  ${line}`)).join("\n"));
+    }
+
+    get liveLogs(): boolean {
+        return this.live;
+    }
+
+    setLiveLogs(on: boolean): boolean {
+        this.live = on;
+        if (!on) this.pending.length = 0;
+        return this.live;
+    }
+
+    /**
+     * Live log line TUI me. Streaming/prompt ke beech me nahi likhta — queue karke
+     * agle prompt/confirm ke baad flush karta hai, taake input ya jawab na bigde.
+     */
+    event(line: string) {
+        if (!this.live || !line) return;
+        if (this.prompting || this.lineOpen || this.thinkingOpen) {
+            this.pending.push(line);
+            if (this.pending.length > 50) this.pending.shift();
+            return;
+        }
+        this.printEvent(line);
+    }
+
+    private printEvent(line: string) {
+        const label = this.spinnerLabel;
+        this.waitingEnd();
+        this.endLine();
+        this.ruleShown = false;
+        console.log(dim(`  · ${clip(line, Math.max(this.width - 6, 60))}`));
+        if (label) this.waiting(label);
+    }
+
+    private flushPending() {
+        if (!this.pending.length) return;
+        const lines = this.pending.splice(0);
+        for (const line of lines) this.printEvent(line);
+    }
+
+    /** Har readline question isi se jata hai, taake live logs input line ko na tode. */
+    private async ask(question: string): Promise<string> {
+        this.prompting = true;
+        try {
+            return await this.rl.question(question);
+        } finally {
+            this.prompting = false;
+            this.flushPending();
+        }
     }
 
     warn(msg: string) {
@@ -171,7 +225,7 @@ export class Tui implements AgentUI {
             console.log(this.rule());
             this.ruleShown = true;
         }
-        const input = await this.rl.question(`${cyan("❯")} `);
+        const input = await this.ask(`${cyan("❯")} `);
         return input.trim();
     }
 
@@ -185,6 +239,7 @@ export class Tui implements AgentUI {
             return;
         }
         this.frame = 0;
+        this.spinnerLabel = label;
         const started = Date.now();
         this.spinner = setInterval(() => {
             const f = SPINNER[this.frame++ % SPINNER.length]!;
@@ -195,6 +250,7 @@ export class Tui implements AgentUI {
     }
 
     waitingEnd() {
+        this.spinnerLabel = null;
         if (!this.spinner) return;
         clearInterval(this.spinner);
         this.spinner = null;
@@ -273,7 +329,7 @@ export class Tui implements AgentUI {
 
     async confirmStrict(): Promise<boolean> {
         this.ruleShown = false;
-        const a = await this.rl.question(red("  ⚠ RISKY! Pakka chalana hai? Poora 'yes' type karo: "));
+        const a = await this.ask(red("  ⚠ RISKY! Pakka chalana hai? Poora 'yes' type karo: "));
         return a.trim().toLowerCase() === "yes";
     }
 
@@ -284,7 +340,7 @@ export class Tui implements AgentUI {
             for (const w of warnings) console.log(red(`    • ${w}`));
         }
         if (preview) console.log(dim(`  ${preview.replace(/\n/g, "\n  ")}`));
-        const a = await this.rl.question(`  ${yellow("Allow?")} ${dim("[y/N]")} `);
+        const a = await this.ask(`  ${yellow("Allow?")} ${dim("[y/N]")} `);
         return a.trim().toLowerCase().startsWith("y");
     }
 }

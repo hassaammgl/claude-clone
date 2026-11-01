@@ -41,7 +41,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Nested todos** — plan tasks and subtasks, iterate with `next`/`done`.
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
 - **MCP tools** — load extra tools from `mcp.json`.
-- **Session logs** — JSONL logs for inputs, tool calls, results, jobs and errors.
+- **Session logs** — live in-TUI event feed (memory only), optional JSONL files.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
 ## Commands
@@ -54,7 +54,8 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/todos clear` | clear the plan |
 | `/jobs` | background jobs |
 | `/jobs kill <id>` | stop a background job |
-| `/logs [n]` | last n log lines + log file path |
+| `/logs [n]` | last n events (in-memory) |
+| `/logs live` | live TUI event feed toggle |
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
 | `/think` | toggle model thinking |
@@ -124,17 +125,44 @@ The agent can work on other todos while a job runs. Jobs are stopped when the ap
 | `OLLAMA_NUM_PREDICT` | `4096` | max generated tokens |
 | `OLLAMA_TEMPERATURE` | `0.4` | sampling temperature |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
-| `NONI_LOG_DIR` | `./logs` | session log directory |
+| `NONI_LOG_FILE` | off | `1` = JSONL file bhi likho |
+| `NONI_LOG_DIR` | `./logs` | log directory (sirf file mode me) |
 
 MCP servers are read from `mcp.json` in the working directory.
 
 ## Logs
 
-Every session writes JSONL to `logs/session-<timestamp>-<pid>.jsonl` (ignored by git). Events include inputs, slash commands, agent start/end, model requests/responses, tool calls and results (with duration), guard blocks, MCP loads, background jobs and errors.
+Logs **TUI me live** dikhte hain — koi file nahi banti. Har event memory me rehta hai (last 500) aur system-level events (agent start/end, model request/response, retries, guard blocks, jobs, errors) ek compact line ke roop me screen pe aate hain:
+
+```
+· 12:34:56 model_request model=qwen3.5:0.8b num_ctx=8192 messages=4
+· 12:35:02 model_response duration_ms=6120 tool_calls=1 done_reason=stop
+· 12:35:03 guard_block tool=write_file reason=zod docs missing
+```
+
+Live feed ko band/chalu karo:
 
 ```bash
-/logs
-/logs 50
+/logs live        # toggle
+/logs on
+/logs off
+```
+
+Aur poora in-memory buffer dekho:
+
+```bash
+/logs            # last 20
+/logs 50         # last 50
+/logs file       # file logging ON/OFF status
+```
+
+Tool calls/results pehle se apne format me dikhte hain (`⏺ tool`, `⎿ result`), isliye live feed me duplicate nahi hote. Input ke beech aane wale events queue ho jate hain, taake typing kharab na ho.
+
+Agar debugging ke liye file chahiye:
+
+```bash
+NONI_LOG_FILE=1 noni-chan        # → logs/session-<timestamp>-<pid>.jsonl
+NONI_LOG_FILE=1 NONI_LOG_DIR=/tmp/noni-logs noni-chan
 ```
 
 ## Local development
@@ -156,7 +184,7 @@ src/tools/            built-in tools
 src/docs/             docs sources + DocsGuard
 src/todos/            nested task store
 src/jobs/             background job manager
-src/log/              JSONL session logger
+src/log/              in-memory event logger + live TUI feed
 src/search/           search providers + fallback engine
 src/ui/               terminal UI
 test/                 unit + integration tests

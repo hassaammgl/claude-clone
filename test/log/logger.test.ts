@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,9 +29,45 @@ async function readEvents(path: string) {
 }
 
 describe("SessionLogger", () => {
-    test("writes inputs, tool calls/results, model and errors as JSONL", async () => {
+    test("keeps events in memory by default and writes no files", async () => {
         const root = await tempRoot();
-        const logger = new SessionLogger(root);
+        const logger = new SessionLogger(root, { dir: join(root, "logs") });
+        logger.input("hello");
+        logger.toolCall("bash", { command: "ls" });
+        await logger.flush();
+
+        expect(logger.path).toBe("");
+        expect(logger.writesFile).toBe(false);
+        expect(existsSync(join(root, "logs"))).toBe(false);
+        expect(logger.count).toBe(2);
+
+        const lines = await logger.tail(10);
+        expect(lines[0]).toContain("input text=hello");
+        expect(lines[1]).toContain("tool_call name=bash");
+    });
+
+    test("streams every event to the live callback as a readable line", async () => {
+        const lines: string[] = [];
+        const types: string[] = [];
+        const logger = new SessionLogger(await tempRoot(), {
+            onEvent: (line, event) => {
+                lines.push(line);
+                types.push(event.type);
+            },
+        });
+
+        logger.event("model_request", { model: "qwen3.5:0.8b", num_ctx: 8_192 });
+        logger.event("guard_block", { tool: "write_file", reason: "zod docs missing" });
+
+        expect(types).toEqual(["model_request", "guard_block"]);
+        expect(lines[0]).toContain("model_request");
+        expect(lines[0]).toContain("num_ctx=8192");
+        expect(lines[1]).toContain("guard_block");
+    });
+
+    test("writes JSONL only when file mode is on", async () => {
+        const root = await tempRoot();
+        const logger = new SessionLogger(root, { file: true, dir: join(root, "logs") });
         logger.sessionStart("qwen3.5:0.8b", 13);
         logger.input("hello");
         logger.toolCall("bash", { command: "ls" });
@@ -42,6 +79,7 @@ describe("SessionLogger", () => {
         logger.sessionEnd();
         await logger.flush();
 
+        expect(logger.writesFile).toBe(true);
         const events = await readEvents(logger.path);
         expect(events.map((e) => e.type)).toEqual([
             "session_start",
@@ -63,7 +101,7 @@ describe("SessionLogger", () => {
     });
 
     test("truncates huge tool output", async () => {
-        const logger = new SessionLogger(await tempRoot());
+        const logger = new SessionLogger(await tempRoot(), { file: true });
         logger.toolResult("read_file", "x".repeat(25_000), false);
         await logger.flush();
 
@@ -85,8 +123,18 @@ describe("SessionLogger", () => {
         expect(lines[1]).toContain("input text=three");
     });
 
+    test("keeps the memory buffer bounded", async () => {
+        const logger = new SessionLogger(await tempRoot(), { limit: 20 });
+        for (let i = 0; i < 60; i++) logger.input(`m${i}`);
+
+        expect(logger.count).toBe(20);
+        const lines = await logger.tail(20);
+        expect(lines[0]).toContain("input text=m40");
+        expect(lines[19]).toContain("input text=m59");
+    });
+
     test("writes commands and generic agent/model events", async () => {
-        const logger = new SessionLogger(await tempRoot());
+        const logger = new SessionLogger(await tempRoot(), { file: true });
         logger.command("/model qwen3.5:2b");
         logger.event("model_request", { model: "qwen3.5:2b", num_ctx: 32_768, tools: 13 });
         logger.event("guard_block", { tool: "write_file", reason: "zod docs missing" });
