@@ -58,11 +58,14 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/jobs kill <id>` | stop a background job |
 | `/logs [n]` | last n events (in-memory) |
 | `/logs live` | live TUI event feed toggle |
-| `/say` | speaking ON/OFF toggle |
 | `/say <text>` | speak text out loud (en/hi) |
-| `/say stop` | current speech stop |
+| `/say on\|off` | auto-speak toggle (`/say stop` = current speech stop) |
 | `/listen` | listening ON/OFF toggle — bolna shuru, rukne pe auto-send |
-| `/listen <sec> [en\|hi\|ur]` | ek baar fixed seconds record |
+| `/listen on\|off` | seedha on ya off |
+| `/listen <sec> [en\|hi\|ur]` | ek baar fixed seconds record (backward compatible) |
+| `/voice` | speak + listening status + models |
+| `/voice on\|off` | auto-speak + listening dono ek saath |
+| `/voice stop` | stop current speech |
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
 | `/think` | toggle model thinking |
@@ -88,12 +91,13 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 
 Voice is local: [Transformers.js](https://github.com/huggingface/transformers.js) runs ONNX models on your machine. Nothing is uploaded.
 
-- **Auto-speak is ON by default.** Every assistant reply is spoken after the text is printed; `/say` toggles that.
+- **Auto-speak is ON by default.** Every assistant reply is spoken after the text is printed; `/voice off` or `/say off` stops that.
 - **Listening is OFF by default.** `/listen` toggles it on/off — no seconds needed. Bolo, aur jab tum rukte ho to silence detect hoke clip khud transcribe ho jati hai aur agent ko chali jati hai. Phir wo dobara sunna shuru kar deta hai.
+- **`/voice on`** ek saath speaking + listening on karta hai; **`/voice off`** dono band. `/say on|off` sirf speaking, `/listen on|off` sirf listening.
 - **TTS models** — `Xenova/mms-tts-eng` and `Xenova/mms-tts-hin`, downloaded once on first use (~100 MB each) into `~/.cache/noni/models`.
 - **STT model** — `Xenova/whisper-tiny` (multilingual), downloaded on first `/listen` or `transcribe`.
 - **Language** — Whisper defaults to English. Hindi/Urdu bolna ho to `/listen` se pehle `NONI_STT_LANG=hi` set karo (ya one-shot `/listen 6 hi`).
-- **Noise guard** — silence pe record nahi hota, bahut chhote blips (keyboard clicks) discard hote hain, aur whisper ke common hallucination ("thank you", repeated lines, `[music]`) skip ho jate hain, taake agent ko junk na jaye.
+- **Noise guard** — silence pe record nahi hota, aur whisper ke common hallucination ("thank you", repeated lines, `[music]`) skip ho jate hain, taake agent ko junk na jaye.
 - Apni speech wapas mic me na jaye, isliye listening TTS ke khatam hone ka wait karta hai.
 - **`speak` / `transcribe`** are agent tools, so the model can read an audio file or say something when you ask for it.
 - **Playback** tries `paplay`, `pw-play`, `aplay`, `ffplay`, then `mpv`.
@@ -247,7 +251,7 @@ npm cache clean --force
 
 **Replies cut short** — the model hit its context/output limit. Use `/clear`, raise `OLLAMA_NUM_CTX`, or raise `OLLAMA_NUM_PREDICT`.
 
-**Voice says nothing** — check `speaking: ON` (`/say` toggles), make sure a player exists (`paplay`, `pw-play`, `ffplay`, or `mpv`), and try `/say hello`. On Arch: `sudo pacman -S pipewire-pulse ffmpeg`.
+**Voice says nothing** — check `/voice` (auto-speak ON), make sure a player exists (`paplay`, `pw-play`, `ffplay`, or `mpv`), and try `/say hello`. On Arch: `sudo pacman -S pipewire-pulse ffmpeg`.
 
 **`ffmpeg nahi mila`** — install ffmpeg; it is needed for `/listen`, mic recording, and `transcribe`. On Arch: `sudo pacman -S ffmpeg`.
 
