@@ -59,12 +59,10 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/logs [n]` | last n events (in-memory) |
 | `/logs live` | live TUI event feed toggle |
 | `/say <text>` | speak text out loud (en/hi) |
-| `/say on\|off` | auto-speak toggle (`/say stop` = current speech stop) |
-| `/listen` | listening ON/OFF toggle — bolna shuru, rukne pe auto-send |
-| `/listen on\|off` | seedha on ya off |
-| `/listen <sec> [en\|hi\|ur]` | ek baar fixed seconds record (backward compatible) |
-| `/voice` | speak + listening status + models |
-| `/voice on\|off` | auto-speak + listening dono ek saath |
+| `/listen [sec]` | record from mic (default 6s), transcribe, send to agent |
+| `/listen [sec] [en\|hi\|ur]` | same, with an explicit spoken language |
+| `/voice` | auto-speak status + models |
+| `/voice on\|off` | toggle auto-speak |
 | `/voice stop` | stop current speech |
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
@@ -91,14 +89,10 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 
 Voice is local: [Transformers.js](https://github.com/huggingface/transformers.js) runs ONNX models on your machine. Nothing is uploaded.
 
-- **Auto-speak is ON by default.** Every assistant reply is spoken after the text is printed; `/voice off` or `/say off` stops that.
-- **Listening is OFF by default.** `/listen` toggles it on/off — no seconds needed. Bolo, aur jab tum rukte ho to silence detect hoke clip khud transcribe ho jati hai aur agent ko chali jati hai. Phir wo dobara sunna shuru kar deta hai.
-- **`/voice on`** ek saath speaking + listening on karta hai; **`/voice off`** dono band. `/say on|off` sirf speaking, `/listen on|off` sirf listening.
+- **Auto-speak is ON by default.** Every assistant reply is spoken after the text is printed; `/voice off` stops that.
 - **TTS models** — `Xenova/mms-tts-eng` and `Xenova/mms-tts-hin`, downloaded once on first use (~100 MB each) into `~/.cache/noni/models`.
 - **STT model** — `Xenova/whisper-tiny` (multilingual), downloaded on first `/listen` or `transcribe`.
-- **Language** — Whisper defaults to English. Hindi/Urdu bolna ho to `/listen` se pehle `NONI_STT_LANG=hi` set karo (ya one-shot `/listen 6 hi`).
-- **Noise guard** — silence pe record nahi hota, aur whisper ke common hallucination ("thank you", repeated lines, `[music]`) skip ho jate hain, taake agent ko junk na jaye.
-- Apni speech wapas mic me na jaye, isliye listening TTS ke khatam hone ka wait karta hai.
+- **`/listen`** records a fixed number of seconds from the default mic (`ffmpeg` via PulseAudio, ALSA fallback), transcribes it, and sends the text to the agent. Pass a language for non-English speech (`/listen 8 hi`) or set `NONI_STT_LANG=hi`; Whisper defaults to English when no language is given.
 - **`speak` / `transcribe`** are agent tools, so the model can read an audio file or say something when you ask for it.
 - **Playback** tries `paplay`, `pw-play`, `aplay`, `ffplay`, then `mpv`.
 - First model load takes a while (download + ONNX init); after that it is cached.
@@ -167,9 +161,6 @@ The agent can work on other todos while a job runs. Jobs are stopped when the ap
 | `NONI_TTS_MODEL_HIN` | `Xenova/mms-tts-hin` | Hindi TTS model |
 | `NONI_WHISPER_MODEL` | `Xenova/whisper-tiny` | STT model (`whisper-base` = better, slower) |
 | `NONI_STT_LANG` | `en` | default spoken language; `hi` for Hindi/Hinglish mic input |
-| `NONI_LISTEN_MAX_SEC` | `6` | continuous listening me ek clip ki max length |
-| `NONI_LISTEN_WAIT_SEC` | `5` | itni der silence na mile to clip band |
-| `NONI_MIC_NOISE` | `-35dB` | silence threshold; noisy mic pe `-25dB` ya `-20dB` try karo |
 | `NONI_TTS_MAX_CHARS` | `1500` | max characters spoken per reply |
 
 MCP servers are read from `mcp.json` in the working directory.
@@ -256,8 +247,6 @@ npm cache clean --force
 **`ffmpeg nahi mila`** — install ffmpeg; it is needed for `/listen`, mic recording, and `transcribe`. On Arch: `sudo pacman -S ffmpeg`.
 
 **`/listen` records silence** — confirm PulseAudio/PipeWire is running (`pactl info`) and the default source is your mic (`pactl list short sources`).
-
-**`/listen` sends junk text** — noisy mic pe silence threshold tune karo (`NONI_MIC_NOISE=-25dB`), ya `NONI_STT_LANG` sahi set karo. Continuous listening ambient speech bhi pakadta hai; `/listen off` se band karo.
 
 **First voice reply is slow** — the model is downloading and initializing ONNX. Progress shows in the live log feed; later replies reuse the cache.
 

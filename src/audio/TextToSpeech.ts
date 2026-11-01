@@ -158,11 +158,6 @@ export class TextToSpeech {
         this.queue = Promise.resolve();
     }
 
-    /** Jab tak queue me chal rahi speech khatam na ho, wait karo. */
-    async whenIdle(): Promise<void> {
-        await this.queue.catch(() => {});
-    }
-
     private async pipeline(language: VoiceLanguage) {
         const model =
             language === "hi"

@@ -31,8 +31,6 @@ export async function transformers(): Promise<TransformersLib> {
             }
             mod.env.cacheDir = MODEL_DIR;
             mod.env.allowRemoteModels = true;
-            // Library ke console warnings TUI ko todte hain; sirf errors dikhein
-            mod.env.logLevel = mod.LogLevel.ERROR;
             lib = mod;
             return mod;
         })();

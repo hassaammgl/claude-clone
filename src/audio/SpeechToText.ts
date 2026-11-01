@@ -22,31 +22,6 @@ const SAMPLE_RATE = 16_000;
 const MAX_SECONDS = 600;
 const MAX_BYTES = 256 * 1024 * 1024;
 
-/** Whisper ke common hallucination / noise outputs. Continuous listening me junk skip karne ke liye. */
-const HALLUCINATIONS = [
-    /^(thank you|thanks|thanks for watching|please subscribe|subscribe|you|bye|goodbye)[.!]?$/i,
-    /subtitles? by .*/i,
-    /amara\.org/i,
-    /\[?(music|applause|laughter|silence)\]?/i,
-    /please .*subscribe/i,
-];
-
-/** Kya transcript shayad sirf noise/hallucination hai? */
-export function looksLikeNoise(text: string): boolean {
-    const clean = text.trim().replace(/\s+/g, " ");
-    if (clean.replace(/[^\p{L}\p{N}]/gu, "").length < 2) return true;
-    if (HALLUCINATIONS.some((pattern) => pattern.test(clean))) return true;
-
-    // Same line baar baar repeat ho to noise maano
-    const lines = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
-    if (lines.length >= 2) {
-        const unique = new Set(lines.map((line) => line.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")));
-        if (unique.size <= Math.ceil(lines.length / 3)) return true;
-    }
-
-    return false;
-}
-
 /** Kisi bhi audio/video file ya URL ko 16kHz mono Float32 me decode karo (ffmpeg). */
 export function decodeAudio(input: string): Promise<Float32Array> {
     return new Promise((resolve, reject) => {

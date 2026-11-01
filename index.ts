@@ -27,9 +27,8 @@ import { ReadDocsTool } from "./src/tools/DocsTool";
 import { TodoStore } from "./src/todos/TodoStore";
 import { TodoTool } from "./src/tools/TodoTool";
 import { TextToSpeech } from "./src/audio/TextToSpeech";
-import { SpeechToText, looksLikeNoise } from "./src/audio/SpeechToText";
-import { recordAudio, recordUtterance, stopRecording } from "./src/audio/Recorder";
-import { voiceDisabled } from "./src/audio/Transformers";
+import { SpeechToText } from "./src/audio/SpeechToText";
+import { recordAudio } from "./src/audio/Recorder";
 import { SpeakTool, TranscribeTool } from "./src/tools/AudioTools";
 
 const cwd = process.cwd();
@@ -69,8 +68,7 @@ const voiceStatus = (message: string, data?: Record<string, unknown>) =>
   logger.event("voice", { event: "status", message, ...(data ?? {}) });
 const tts = new TextToSpeech(voiceStatus);
 const stt = new SpeechToText(voiceStatus);
-let autoSpeak = !voiceDisabled() && !["0", "off", "false", "no"].includes((process.env.NONI_AUTO_SPEAK ?? "").trim().toLowerCase());
-let listening = false;
+let autoSpeak = !["0", "off", "false", "no"].includes((process.env.NONI_AUTO_SPEAK ?? "").trim().toLowerCase());
 
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
@@ -172,8 +170,6 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  listening = false;
-  stopRecording();
   tts.stop();
   logger.sessionEnd();
   await jobs.closeAll();
@@ -195,12 +191,6 @@ if (mcpTools.length) logger.event("mcp", { tools: mcpTools.length, config: join(
 
 /** Ek user message agent ko bhejo + auto-speak. Normal prompt aur /listen dono yahi use karte hain. */
 async function runAgent(text: string) {
-  // Typed prompt aaya to adhoori recording chhod do, warna double input ja sakta hai
-  if (listening) stopRecording();
-
-  // Ek waqt me ek hi agent run (continuous listening + typed prompt race se bachne ke liye)
-  while (busy) await sleep(100);
-
   busy = true;
   try {
     const reply = await agent.run(text);
@@ -215,80 +205,6 @@ async function runAgent(text: string) {
   } finally {
     busy = false;
   }
-}
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/** Jab tak listening ON hai: bolo → silence pe khud ruk kar transcribe → agent ko bhejo. */
-async function listenLoop() {
-  while (listening) {
-    if (busy) {
-      await sleep(200);
-      continue;
-    }
-
-    // Apni hi speech wapas mic me na aaye
-    await tts.whenIdle();
-    if (!listening) break;
-    if (busy) continue;
-    await sleep(250);
-
-    let file: string | null = null;
-    try {
-      file = await recordUtterance(voiceStatus);
-    } catch (e: any) {
-      if (!listening) break;
-      logger.error(e.message);
-      ui.error(`listen: ${e.message}`);
-      await sleep(1_500);
-      continue;
-    }
-
-    if (!file) continue;
-
-    try {
-      if (!listening) break;
-      const text = await stt.transcribe(file);
-      if (text && listening) {
-        if (looksLikeNoise(text)) {
-          logger.event("voice", { event: "listen_skip", message: "noise/hallucination skip", chars: text.length });
-          continue;
-        }
-        ui.log(`🎤 ${text}`);
-        logger.input(text);
-        await runAgent(text);
-      }
-    } catch (e: any) {
-      if (!listening) break;
-      logger.error(e.message);
-      ui.error(`listen: ${e.message}`);
-      await sleep(500);
-    } finally {
-      await rm(file, { force: true }).catch(() => {});
-    }
-  }
-}
-
-function startListening() {
-  if (listening) return;
-  if (voiceDisabled()) {
-    ui.warn("voice band hai (NONI_VOICE=off)");
-    return;
-  }
-  listening = true;
-  ui.log("listening: ON — bolo, rukne pe khud transcribe hoga. Band karne ke liye /listen off");
-  void listenLoop().catch((e: any) => {
-    listening = false;
-    logger.error(e.message);
-    ui.error(`listen: ${e.message}`);
-  });
-}
-
-function stopListening() {
-  if (!listening) return;
-  listening = false;
-  stopRecording();
-  ui.log("listening: OFF");
 }
 
 while (true) {
@@ -321,12 +237,10 @@ while (true) {
         "/logs on|off     live feed ko seedha on/off",
         "/logs file       file logging status",
         "/say <text>      TTS se bolo (en/hi)",
-        "/say on|off      auto-speak toggle (stop se speech band)",
-        "/listen          listening ON/OFF toggle (silence pe auto-send)",
-        "/listen on|off   seedha on ya off",
-        "/listen <sec>    ek baar fixed seconds record + transcribe",
-        "/voice           speak + listening status",
-        "/voice on|off    dono ek saath on/off",
+        "/listen [sec]    mic se record + transcribe + agent ko bhejo",
+        "/listen [sec] hi 18s tak size, 6s default; hi|en|ur language",
+        "/voice           auto-speak status",
+        "/voice on|off    auto-speak toggle",
         "/voice stop      chal rahi speech rok do",
         "/model <name>    model switch",
         "/clear           chat history clear (plan rehta hai)",
@@ -385,43 +299,31 @@ while (true) {
     const arg = input.split(/\s+/)[1] ?? "";
     if (arg === "on") {
       autoSpeak = true;
-      startListening();
-      ui.log("voice: ON (speak + listen)");
+      ui.log("auto-speak: ON");
     } else if (arg === "off") {
       autoSpeak = false;
-      stopListening();
       tts.stop();
-      ui.log("voice: OFF (speak + listen)");
+      ui.log("auto-speak: OFF");
     } else if (arg === "stop") {
       tts.stop();
       ui.log("speech stopped");
     } else {
       ui.log(
         [
-          `speak: ${autoSpeak ? "ON" : "OFF"} · listening: ${listening ? "ON" : "OFF"}`,
+          `auto-speak: ${autoSpeak ? "ON" : "OFF"}`,
           `tts en: ${process.env.NONI_TTS_MODEL_ENG ?? "Xenova/mms-tts-eng"}`,
           `tts hi: ${process.env.NONI_TTS_MODEL_HIN ?? "Xenova/mms-tts-hin"}`,
           `stt:    ${process.env.NONI_WHISPER_MODEL ?? "Xenova/whisper-tiny"} (lang: ${process.env.NONI_STT_LANG ?? "en default"})`,
-          "/voice on|off|stop · /say on|off · /listen on|off",
+          "/voice on|off|stop · /say <text> · /listen [sec] [en|hi|ur]",
         ].join("\n"),
       );
     }
   } else if (input === "/say" || input.startsWith("/say ")) {
-    const arg = input.slice(4).trim();
-    if (!arg) ui.warn("usage: /say <text> | /say on|off|stop");
-    else if (arg === "on") {
-      autoSpeak = true;
-      ui.log("say: ON — har reply bolegi");
-    } else if (arg === "off") {
-      autoSpeak = false;
-      tts.stop();
-      ui.log("say: OFF");
-    } else if (arg === "stop") {
-      tts.stop();
-      ui.log("speech stopped");
-    } else {
+    const text = input.slice(4).trim();
+    if (!text) ui.warn("usage: /say <text>");
+    else {
       try {
-        ui.log(await tts.speak(arg, { interrupt: true }));
+        ui.log(await tts.speak(text, { interrupt: true }));
       } catch (e: any) {
         logger.error(e.message);
         ui.error(`voice: ${e.message}`);
@@ -429,39 +331,25 @@ while (true) {
     }
   } else if (input === "/listen" || input.startsWith("/listen ")) {
     const args = input.split(/\s+/).slice(1);
-    const first = args[0] ?? "";
-
-    if (!first || first === "on" || first === "off") {
-      if (first === "on") startListening();
-      else if (first === "off") stopListening();
-      else if (listening) stopListening();
-      else startListening();
-    } else {
-      // Backward-compatible one-shot: /listen 8 [en|hi|ur]
-      const seconds = Number(first);
-      const language = ["en", "hi", "ur"].includes(args[1] ?? "") ? args[1] : undefined;
-      if (!Number.isFinite(seconds) || seconds <= 0) {
-        ui.warn("usage: /listen | /listen on|off | /listen <sec> [en|hi|ur]");
-      } else {
-        try {
-          const file = await recordAudio(seconds, voiceStatus);
-          try {
-            const text = await stt.transcribe(file, language ? { language } : {});
-            if (!text || looksLikeNoise(text)) {
-              ui.warn("kuch samajh nahi aaya — dobara try karo");
-            } else {
-              ui.log(`🎤 ${text}`);
-              logger.input(text);
-              await runAgent(text);
-            }
-          } finally {
-            await rm(file, { force: true }).catch(() => {});
-          }
-        } catch (e: any) {
-          logger.error(e.message);
-          ui.error(`voice: ${e.message}`);
+    const seconds = Number(args[0]) || 6;
+    const language = ["en", "hi", "ur"].includes(args[1] ?? "") ? args[1] : undefined;
+    try {
+      const file = await recordAudio(seconds, voiceStatus);
+      try {
+        const text = await stt.transcribe(file, language ? { language } : {});
+        if (!text) {
+          ui.warn("kuch samajh nahi aaya — dobara /listen try karo");
+        } else {
+          ui.log(`🎤 ${text}`);
+          logger.input(text);
+          await runAgent(text);
         }
+      } finally {
+        await rm(file, { force: true }).catch(() => {});
       }
+    } catch (e: any) {
+      logger.error(e.message);
+      ui.error(`voice: ${e.message}`);
     }
   } else if (input.startsWith("/model")) {
     agent.model = input.split(" ")[1] ?? agent.model;
