@@ -171,7 +171,6 @@ NONI_LOG_FILE=1 NONI_LOG_DIR=/tmp/noni-logs noni-chan
 bun install
 bun run dev      # watch mode
 bun run start    # run once
-bun test
 bun run typecheck
 ```
 
@@ -187,7 +186,6 @@ src/jobs/             background job manager
 src/log/              in-memory event logger + live TUI feed
 src/search/           search providers + fallback engine
 src/ui/               terminal UI
-test/                 unit + integration tests
 ```
 
 ## Troubleshooting
