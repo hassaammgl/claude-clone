@@ -33,9 +33,9 @@ Note: `write_file` currently overwrites existing files, it is not "new file only
 - TTS: `Xenova/mms-tts-eng` + `Xenova/mms-tts-hin` (`dtype: q8`), sentence chunks me playback.
 - STT: `Xenova/whisper-tiny` (multilingual), ffmpeg se 16kHz mono Float32 decode.
 - Mic: ffmpeg `-f pulse` → `-f alsa` fallback. Player: `paplay` → `pw-play` → `aplay` → `ffplay` → `mpv`.
-- Auto-speak default ON (`NONI_AUTO_SPEAK=off` ya `/voice off`/`/say off` se band).
+- Auto-speak default ON (`NONI_AUTO_SPEAK=off` ya `/say` se toggle).
 - Continuous listening: `/listen` toggle (no seconds). Silence pe clip khud band, transcribe, agent ko send. Fixed `/listen <sec>` bhi available.
-- `/voice on` = speaking + listening dono; `/voice off` = dono band.
+- `/say` = speaking toggle; `/say <text>` = ek baar bolo.
 - Whisper ke common hallucinations (repeated lines, "thank you", `[music]`) skip hote hain.
 - Urdu/Arabic script TTS **skip** hota hai (ONNX Urdu voice nahi hai); Whisper Urdu STT kar leta hai.
 - Models pehli use pe `~/.cache/noni/models` me download hote hain (`NONI_MODEL_DIR` se badal sakte hain).

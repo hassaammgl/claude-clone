@@ -167,6 +167,8 @@ function recordAttempt(
         let buffer = "";
         let heard = false;
         let sawSilence = false;
+        let speechStart = 0;
+        let speechEnd = 0;
         let settled = false;
         let notFound = false;
         let killTimer: NodeJS.Timeout | undefined;
@@ -203,16 +205,26 @@ function recordAttempt(
                 const line = buffer.slice(0, index);
                 buffer = buffer.slice(index + 1);
 
-                if (line.includes("silence_end")) {
+                const match = line.match(/(silence_start|silence_end):\s*([\d.]+)/);
+                if (!match) continue;
+
+                const at = Number(match[2]);
+                if (match[1] === "silence_end") {
                     // silence khatam = bolna shuru
-                    heard = true;
-                    clearTimeout(waitTimer);
-                } else if (line.includes("silence_start")) {
+                    if (!heard) {
+                        heard = true;
+                        speechStart = at;
+                        clearTimeout(waitTimer);
+                    }
+                } else {
                     sawSilence = true;
-                    // bolna band — tail ke liye thoda intezaar
-                    if (heard && !killTimer) {
-                        killTimer = setTimeout(stop, 350);
-                        killTimer.unref?.();
+                    if (heard) {
+                        speechEnd = at;
+                        // bolna band — tail ke liye thoda intezaar
+                        if (!killTimer) {
+                            killTimer = setTimeout(stop, 350);
+                            killTimer.unref?.();
+                        }
                     }
                 }
             }
@@ -237,7 +249,9 @@ function recordAttempt(
 
             // Quiet mic: shuru se silence tha aur bolna shuru hi nahi hua -> discard.
             // Noisy mic: silence_start hi nahi aaya, audio ko speech maano.
-            finish(heard || !sawSilence ? "speech" : "silent");
+            // Bahut chhota blip (keyboard click) bhi discard.
+            const tooShort = heard && speechEnd > speechStart && speechEnd - speechStart < 0.45;
+            finish(tooShort ? "silent" : heard || !sawSilence ? "speech" : "silent");
         });
     });
 }
