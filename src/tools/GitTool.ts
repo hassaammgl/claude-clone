@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { Tool } from "./Tool";
 
 const ACTIONS = ["status", "diff", "log", "show", "branch", "add", "commit"] as const;
@@ -89,18 +90,29 @@ export class GitTool extends Tool {
     }
 
     /** Args array se chalao (shell string nahi), output clip karke wapas */
-    private async git(args: string[]): Promise<string> {
-        const proc = Bun.spawn(["git", ...args], {
-            cwd: this.root,
-            stdout: "pipe",
-            stderr: "pipe",
-            env: { ...process.env, GIT_PAGER: "cat", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+    private git(args: string[]): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const child = spawn("git", args, {
+                cwd: this.root,
+                stdio: ["ignore", "pipe", "pipe"],
+                env: { ...process.env, GIT_PAGER: "cat", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+            });
+
+            let out = "";
+            let err = "";
+            child.stdout?.on("data", (chunk) => {
+                out += String(chunk);
+            });
+            child.stderr?.on("data", (chunk) => {
+                err += String(chunk);
+            });
+            child.on("error", () => reject(new Error(`git ${args[0]} start nahi hua (git installed hai?)`)));
+            child.on("close", (code) => {
+                const text = clip([out, err].filter(Boolean).join("\n").trim());
+                if (code !== 0) reject(new Error(text || `git ${args[0]} failed (exit ${code})`));
+                else resolve(text);
+            });
         });
-        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-        const code = await proc.exited;
-        const text = clip([out, err].filter(Boolean).join("\n").trim());
-        if (code !== 0) throw new Error(text || `git ${args[0]} failed (exit ${code})`);
-        return text;
     }
 }
 

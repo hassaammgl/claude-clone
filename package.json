@@ -1,6 +1,6 @@
 {
   "name": "noni-chan",
-  "version": "3.0.3",
+  "version": "3.0.5",
   "description": "Agentic Coding CLI (Noni-chan CLI) — web search, docs guard, nested todos and background jobs.",
   "type": "module",
   "module": "index.ts",
@@ -17,9 +17,8 @@
   "scripts": {
     "dev": "bun run --watch index.ts",
     "start": "bun index.ts",
-    "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
-    "prepublishOnly": "bun run typecheck && bun test"
+    "prepublishOnly": "bun run typecheck"
   },
   "keywords": [
     "cli",

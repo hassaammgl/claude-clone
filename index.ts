@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
 import { Ollama } from "ollama";
 import { Agent } from "./src/agent/Agent";
 import { McpManager } from "./src/mcp/McpManager";
@@ -19,7 +20,6 @@ import {
 import { GitTool } from "./src/tools/GitTool";
 import { AskUserTool } from "./src/tools/AskUserTool";
 import { Tui } from "./src/ui/Tui";
-import { SessionLogger } from "./src/log/SessionLogger";
 import { JobManager } from "./src/jobs/JobManager";
 import { WebFetchTool, WebSearchTool } from "./src/tools/WebTools";
 import { SearchEngine } from "./src/search/SearchEngine";
@@ -34,17 +34,7 @@ import { TodoTool } from "./src/tools/TodoTool";
 import { loadConfig } from "./src/config/Config";
 
 const cwd = process.cwd();
-const logger = new SessionLogger(cwd);
-const jobs = new JobManager((event, job) =>
-  logger.log("job", {
-    event,
-    id: job.id,
-    status: job.status,
-    command: job.command,
-    exit_code: job.exitCode,
-    duration_ms: (job.endedAt ?? Date.now()) - job.startedAt,
-  }),
-);
+const jobs = new JobManager();
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
 });
@@ -100,11 +90,10 @@ async function pickModel(): Promise<string> {
 }
 
 // Global config (~/.config/noni-chan/config.json): model defaults + MCP servers
-const { config, path: configFile, error: configError } = await loadConfig();
+const { config, error: configError } = await loadConfig();
 if (configError) ui.warn(`config.json padha nahi gaya (${configError}); defaults use kar rahi hoon`);
 
 const agent = new Agent(ollama, await pickModel(), ui, cwd, config.llm);
-agent.addLogger(logger);
 
 const search = new SearchEngine([
   new SearxngProvider(process.env.SEARXNG_URL ?? "http://localhost:8080"), // pehle apna
@@ -157,25 +146,40 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const fmtSize = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(0)} KB`);
 
+const IMAGE_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+};
+
 /** Image file → base64. Log me sirf path/size jata hai, data kabhi nahi */
 async function loadImage(raw: string) {
   const clean = raw.trim().replace(/^~(?=$|\/)/, homedir());
-  const file = Bun.file(resolve(cwd, clean));
-  if (!(await file.exists())) throw new Error(`image not found: ${clean}`);
-  if (!/^image\//.test(file.type)) throw new Error(`not an image (${file.type || "unknown type"}): ${clean}`);
-  if (file.size > MAX_IMAGE_BYTES) throw new Error(`image too big: ${(file.size / 1e6).toFixed(1)} MB (max 10 MB)`);
+  const abs = resolve(cwd, clean);
+  let info;
+  try {
+    info = await stat(abs);
+  } catch {
+    throw new Error(`image not found: ${clean}`);
+  }
+  if (!info.isFile()) throw new Error(`not a file: ${clean}`);
+  const ext = extname(abs).toLowerCase();
+  if (!IMAGE_MIME[ext]) throw new Error(`not an image (${ext || "no extension"}): ${clean}`);
+  if (info.size > MAX_IMAGE_BYTES) throw new Error(`image too big: ${(info.size / 1e6).toFixed(1)} MB (max 10 MB)`);
   if (!(await agent.supportsVision())) {
     throw new Error(`model ${agent.model} vision support nahi karta; /model se vision wala model chuno`);
   }
-  return { path: clean, base64: Buffer.from(await file.arrayBuffer()).toString("base64"), bytes: file.size };
+  return { path: clean, base64: (await readFile(abs)).toString("base64"), bytes: info.size };
 }
 
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.sessionEnd();
   await jobs.closeAll();
-  await logger.close();
   await mcp.close();
 }
 
@@ -187,8 +191,6 @@ ui.onExit(async () => {
   process.exit(0);
 });
 
-logger.sessionStart(agent.model, agent.listTools().length);
-logger.event("mcp", { tools: mcpTools.length, config: configFile });
 ui.banner(agent.model, agent.listTools().length, todos.size);
 
 while (true) {
@@ -199,8 +201,6 @@ while (true) {
     break;
   }
   if (!input) continue;
-  logger.input(input);
-  if (input.startsWith("/")) logger.command(input);
 
   if (input === "/exit") ui.close();
   else if (input === "/clear") {
@@ -219,7 +219,6 @@ while (true) {
         "/todos clear     plan hatao",
         "/jobs            background jobs",
         "/jobs kill <id>  job band karo",
-        "/logs [n]        last n log lines + file path",
         "/img <path>      image agle message ke saath bhejo",
         "/img clear       pending image hatao",
         "/model <name>    model switch",
@@ -245,10 +244,8 @@ while (true) {
     } else {
       try {
         const job = jobs.kill(id);
-        logger.log("job", { event: "kill", id: job.id, status: job.status, command: job.command });
         ui.log(`job ${job.id}: ${job.status}`);
       } catch (e: any) {
-        logger.error(e.message);
         ui.error(e.message);
       }
     }
@@ -266,33 +263,24 @@ while (true) {
     } else {
       try {
         pendingImage = await loadImage(arg);
-        logger.log("image", { event: "attach", path: pendingImage.path, bytes: pendingImage.bytes });
         ui.log(`image ready: ${pendingImage.path} (${fmtSize(pendingImage.bytes)}) — ab sawaal likho`);
       } catch (e: any) {
-        logger.error(e.message);
         ui.error(e.message);
       }
     }
-  } else if (input === "/logs" || input.startsWith("/logs ")) {
-    const n = Number(input.split(/\s+/)[1]) || 20;
-    const lines = await logger.tail(n);
-    ui.log(`log: ${logger.path}\n${lines.join("\n") || "(empty)"}`);
   } else if (input.startsWith("/model")) {
     agent.model = input.split(" ")[1] ?? agent.model;
-    logger.model(agent.model);
     ui.log(`model: ${agent.model}`);
   } else {
     busy = true;
     const images = pendingImage ? [pendingImage.base64] : [];
     if (pendingImage) {
-      logger.log("image", { event: "send", path: pendingImage.path, bytes: pendingImage.bytes });
       ui.log(`+ image: ${pendingImage.path}`);
       pendingImage = null;
     }
     try {
       await agent.run(input, images);
     } catch (e: any) {
-      logger.error(e.message);
       ui.error(e.message);
     } finally {
       busy = false;

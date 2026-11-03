@@ -25,13 +25,6 @@ Legend: ✅ in code · ⚠️ listed as done but missing from code · ⬜ not st
 
 Note: `write_file` currently overwrites existing files, it is not "new file only".
 
-## Logs
-
-- Har session `logs/session-<timestamp>-<pid>.jsonl` me likhi jati hai (folder `.gitignore` me hai).
-- Input, commands, assistant replies, tool calls, tool results, errors aur model changes sab events hain.
-- TUI me `/logs` ya `/logs 50` se aakhri lines dikhti hain.
-- `NONI_LOG_DIR=/some/dir` se location badal sakte hain.
-
 ## Phase 1 — sabse zaroori
 
 | Tool | Kaam | Dangerous? | Status |

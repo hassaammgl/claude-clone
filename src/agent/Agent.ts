@@ -1,7 +1,7 @@
 import type { Message, Ollama, ToolCall } from "ollama";
-import type { AgentLog, LogType } from "../log/SessionLogger";
 import type { Tool } from "../tools/Tool";
 import type { LlmSettings } from "../config/Config";
+import { readText } from "../util/Fs";
 
 export interface AgentUI {
     assistantStart(): void;
@@ -45,12 +45,11 @@ export interface Guard {
 }
 
 /** Persona lives in persona.md so it can be edited without touching the app. */
-const PERSONA = (await Bun.file(new URL("./persona.md", import.meta.url)).text()).trim();
+const PERSONA = (await readText(new URL("./persona.md", import.meta.url))).trim();
 
 export class Agent {
     private tools = new Map<string, Tool>();
     private guards: Guard[] = [];
-    private logs: AgentLog[] = [];
     private contexts: (() => string)[] = [];
     private messages: Message[] = [];
     private ctxByModel = new Map<string, number>();
@@ -72,14 +71,6 @@ export class Agent {
 
     addGuard(guard: Guard) {
         this.guards.push(guard);
-    }
-
-    addLogger(log: AgentLog) {
-        this.logs.push(log);
-    }
-
-    private logEvent(type: LogType, data: Record<string, unknown> = {}) {
-        this.logs.forEach((log) => log.event?.(type, data));
     }
 
     /** Har run ke system prompt me extra live context (jaise current todo plan). */
@@ -150,7 +141,7 @@ export class Agent {
 - Operating system: ${os} (${arch})
 - Working directory: ${this.cwd}
 - Shell: bash -lc; user shell: ${process.env.SHELL ?? "unknown"}
-- Runtime: Bun ${Bun.version} (JavaScript/TypeScript)
+- Runtime: JavaScript on ${process.release?.name ?? "node"} ${process.version}
 - Date: ${new Date().toISOString().slice(0, 10)}
 - Model: ${this.model}
 - Tools: ${tools}
@@ -184,18 +175,7 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
         this.messages[0] = { role: "system", content: this.systemPrompt() };
         this.messages.push({ role: "user", content: input, ...(images.length ? { images } : {}) });
 
-        const startedAt = Date.now();
-        this.logEvent("agent_start", {
-            model: this.model,
-            messages: this.messages.length,
-            think: this.think,
-            images: images.length,
-        });
-        try {
-            await this.loop();
-        } finally {
-            this.logEvent("agent_end", { duration_ms: Date.now() - startedAt, messages: this.messages.length });
-        }
+        await this.loop();
     }
 
     /** LLM -> tools -> LLM ... jab tak tool call aati rahe */
@@ -206,14 +186,6 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
         while (true) {
             this.ui.waiting?.();
             let numCtx = ctxOverride ?? (await this.numCtx());
-            const chatStarted = Date.now();
-            this.logEvent("model_request", {
-                model: this.model,
-                num_ctx: numCtx,
-                num_predict: NUM_PREDICT,
-                messages: this.messages.length,
-                tools: this.listTools().length,
-            });
             const open = () =>
                 this.ollama.chat({
                     model: this.model,
@@ -237,7 +209,6 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
                 const reason = e instanceof Error ? e.message : String(e);
                 numCtx = Math.max(4_096, Math.floor(numCtx / 2));
                 ctxOverride = numCtx;
-                this.logEvent("model_retry", { phase: "request", reason, num_ctx: numCtx });
                 this.ui.warn?.(`model request timed out; retrying with num_ctx=${numCtx}...`);
                 stream = await open();
             }
@@ -273,33 +244,21 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
                     const reason = e instanceof Error ? e.message : String(e);
                     numCtx = Math.max(4_096, Math.floor(numCtx / 2));
                     ctxOverride = numCtx;
-                    this.logEvent("model_retry", { phase: "stream", reason, num_ctx: numCtx });
                     this.ui.warn?.(`model stream timed out; retrying with num_ctx=${numCtx}...`);
                     continue;
                 }
-                this.logEvent("error", { phase: "model", message: e instanceof Error ? e.message : String(e) });
                 throw e;
             }
 
             this.ui.waitingEnd?.();
             if (thinking) this.ui.thinkingEnd?.();
             if (started) this.ui.assistantEnd();
-            this.logEvent("model_response", {
-                duration_ms: Date.now() - chatStarted,
-                done_reason: doneReason,
-                content_chars: content.length,
-                thinking_chars: thinking.length,
-                tool_calls: calls.length,
-                num_ctx: numCtx,
-            });
             if (doneReason === "length") {
                 this.ui.warn?.(
                     `reply cut short: model limit hit (num_ctx=${numCtx}, num_predict=${NUM_PREDICT}). ` +
                         `Chat lambi hai to /clear karo; lamba jawab chahiye to OLLAMA_NUM_PREDICT badha do.`,
                 );
             }
-
-            if (content || thinking) this.logs.forEach((log) => log.assistant(content, thinking || undefined));
 
             const reply: Message = { role: "assistant", content };
             if (thinking) reply.thinking = thinking;
@@ -318,22 +277,15 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
     private async execute(name: string, args: Record<string, any>): Promise<string> {
         const started = Date.now();
         const tool = this.tools.get(name);
-        if (!tool) {
-            this.logEvent("error", { phase: "tool", tool: name, message: "unknown tool" });
-            return this.fail(`unknown tool ${name}`, name, started);
-        }
+        if (!tool) return this.fail(`unknown tool ${name}`, name, started);
 
         this.ui.toolCall(name, args);
-        this.logs.forEach((log) => log.toolCall(name, args));
 
         try {
             // Guards dangerous-confirm se pehle: blocked edit pe user ko bekar confirm na dikhe
             for (const guard of this.guards) {
                 const blocked = await guard.check(tool, args);
-                if (blocked) {
-                    this.logEvent("guard_block", { tool: name, reason: blocked });
-                    return this.fail(blocked, name, started);
-                }
+                if (blocked) return this.fail(blocked, name, started);
             }
 
             if (tool.dangerousFor(args)) {
@@ -358,9 +310,7 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
             } finally {
                 this.ui.waitingEnd?.();
             }
-            const duration = Date.now() - started;
             this.ui.toolResult(out, false);
-            this.logs.forEach((log) => log.toolResult(name, out, false, duration));
             return out;
         } catch (e: any) {
             return this.fail(e.message, name, started);
@@ -369,10 +319,6 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
 
     private fail(msg: string, toolName?: string, startedAt?: number): string {
         this.ui.toolResult(msg, true);
-        if (toolName) {
-            const duration = startedAt === undefined ? undefined : Date.now() - startedAt;
-            this.logs.forEach((log) => log.toolResult(toolName, msg, true, duration));
-        }
         return `Error: ${msg}`;
     }
 }

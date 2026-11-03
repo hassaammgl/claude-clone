@@ -42,7 +42,6 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
 - **MCP tools** — load extra tools from the global config `~/.config/noni-chan/config.json`.
 - **Images (vision)** — `/img <path>` se agla message image ke saath model ko jata hai (vision-supporting models pe).
-- **Session logs** — JSONL logs for inputs, tool calls, results, jobs and errors.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
 ## Commands
@@ -55,7 +54,6 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/todos clear` | clear the plan |
 | `/jobs` | background jobs |
 | `/jobs kill <id>` | stop a background job |
-| `/logs [n]` | last n log lines + log file path |
 | `/img <path>` | image attach karo — agli message ke saath jayegi |
 | `/img clear` | pending image hatao |
 | `/model <name>` | switch model |
@@ -142,7 +140,6 @@ ye error screenshot me kya hai?
 | `OLLAMA_NUM_PREDICT` | `4096` | max generated tokens |
 | `OLLAMA_TEMPERATURE` | `0.4` | sampling temperature |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
-| `NONI_LOG_DIR` | `./logs` | session log directory |
 
 MCP servers come from the global config at `~/.config/noni-chan/config.json` (or `$XDG_CONFIG_HOME/noni-chan/config.json`):
 
@@ -174,15 +171,6 @@ Same file me model defaults bhi hain — context length by default har model ki 
 
 `num_ctx` ko number (jaise `32768`) kar do to usi value pe cap ho jayegi. `OLLAMA_NUM_CTX` env isse bhi upar hai (emergency override).
 
-## Logs
-
-Every session writes JSONL to `logs/session-<timestamp>-<pid>.jsonl` (ignored by git). Events include inputs, slash commands, agent start/end, model requests/responses, tool calls and results (with duration), guard blocks, MCP loads, background jobs and errors.
-
-```bash
-/logs
-/logs 50
-```
-
 ## Local development
 
 ```bash
@@ -202,7 +190,6 @@ src/tools/            built-in tools
 src/docs/             docs sources + DocsGuard
 src/todos/            nested task store
 src/jobs/             background job manager
-src/log/              JSONL session logger
 src/search/           search providers + fallback engine
 src/ui/               terminal UI
 test/                 unit + integration tests

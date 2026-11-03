@@ -1,3 +1,6 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { which } from "../util/Fs";
+
 export type JobStatus = "running" | "done" | "failed" | "killed";
 export type JobEvent = "start" | "finish";
 
@@ -13,7 +16,7 @@ export interface Job {
     stdout: string;
     stderr: string;
     finished: Promise<number>;
-    proc: ReturnType<typeof Bun.spawn>;
+    proc: ChildProcess;
     useSetsid: boolean;
 }
 
@@ -28,10 +31,11 @@ function append(job: Job, key: "stdout" | "stderr", text: string) {
     job.lastOutputAt = Date.now();
 }
 
-async function collect(stream: ReadableStream<Uint8Array>, job: Job, key: "stdout" | "stderr") {
+async function collect(stream: NodeJS.ReadableStream | null, job: Job, key: "stdout" | "stderr") {
+    if (!stream) return;
     const decoder = new TextDecoder();
     try {
-        for await (const chunk of stream) append(job, key, decoder.decode(chunk, { stream: true }));
+        for await (const chunk of stream) append(job, key, decoder.decode(chunk as Buffer, { stream: true }));
         append(job, key, decoder.decode());
     } catch {
         // process killed / stream closed
@@ -54,18 +58,16 @@ export class JobManager {
 
     start(command: string, cwd: string): Job {
         const id = String(this.nextId++);
-        const useSetsid = !!Bun.which("setsid");
-        const proc = Bun.spawn([...(useSetsid ? ["setsid"] : []), "bash", "-c", command], {
+        const useSetsid = !!which("setsid");
+        const proc = spawn(useSetsid ? "setsid" : "bash", useSetsid ? ["bash", "-c", command] : ["-c", command], {
             cwd,
-            stdin: "ignore",
-            stdout: "pipe",
-            stderr: "pipe",
+            stdio: ["ignore", "pipe", "pipe"],
             env: {
                 ...process.env,
                 PAGER: "cat",
                 GIT_PAGER: "cat",
                 GIT_TERMINAL_PROMPT: "0",
-            } as Record<string, string>,
+            },
         });
 
         const now = Date.now();
@@ -88,11 +90,20 @@ export class JobManager {
 
         job.finished = (async () => {
             let code = -1;
-            try {
-                code = await proc.exited;
-            } catch {
-                // spawn/exit error: failed ke roop me dikhao
-            }
+            await new Promise<void>((done) => {
+                let settled = false;
+                const finish = (exitCode?: number | null) => {
+                    if (settled) return;
+                    settled = true;
+                    if (typeof exitCode === "number") code = exitCode;
+                    done();
+                };
+                proc.once("close", (exitCode) => finish(exitCode));
+                proc.once("error", () => finish()); // spawn fail (bash hi nahi mila)
+                // process pehle hi khatam ho gaya to event ka intezaar mat karo
+                if (proc.exitCode !== null) finish(proc.exitCode);
+                else if (proc.signalCode) finish();
+            });
             await readers;
             job.exitCode = code;
             job.endedAt = Date.now();
@@ -150,7 +161,8 @@ export class JobManager {
         if (job.status !== "running") return job;
         job.status = "killed";
         try {
-            if (job.useSetsid) process.kill(-job.proc.pid, "SIGKILL");
+            const pid = job.proc.pid;
+            if (job.useSetsid && pid) process.kill(-pid, "SIGKILL");
             else job.proc.kill("SIGKILL");
         } catch {
             // already gone

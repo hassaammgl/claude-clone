@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { exists, readJson } from "../util/Fs";
 
 /** Ek MCP server ki setting — pehle wale mcp.json jaisa hi shape */
 export interface McpServerConfig {
@@ -33,11 +34,10 @@ function defaultConfig(): NoniConfig {
 
 /** Global config padho. File na mile ya JSON kharab ho to defaults ke saath error wapas. */
 export async function loadConfig(path = configPath()): Promise<{ config: NoniConfig; path: string; error?: string }> {
-    const file = Bun.file(path);
-    if (!(await file.exists())) return { config: defaultConfig(), path };
+    if (!(await exists(path))) return { config: defaultConfig(), path };
 
     try {
-        const raw = (await file.json()) as Partial<NoniConfig> & Record<string, unknown>;
+        const raw = await readJson<Partial<NoniConfig> & Record<string, unknown>>(path);
         const base = defaultConfig();
         return {
             config: {

@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { Tool } from "./Tool";
 
@@ -41,7 +41,7 @@ export class ReadFileTool extends FileTool {
         required: ["path"],
     };
     async run({ path }: Record<string, any>) {
-        const text = await Bun.file(this.path(path)).text();
+        const text = await readFile(this.path(path), "utf8");
         return text.split("\n").map((l, i) => `${i + 1}| ${l}`).join("\n");
     }
 }
@@ -69,7 +69,7 @@ export class WriteFileTool extends FileTool {
         return `write ${path}\n${snippet(content)}`;
     }
     async run({ path, content }: Record<string, any>) {
-        await Bun.write(this.path(path), content);
+        await writeFile(this.path(path), content, "utf8");
         return `wrote ${path}`;
     }
 }
@@ -87,11 +87,11 @@ export class EditFileTool extends FileTool {
         return `edit ${path}\n${snippet(`- ${old_string}\n+ ${new_string}`, 10)}`;
     }
     async run({ path, old_string, new_string }: Record<string, any>) {
-        const file = Bun.file(this.path(path));
-        const text = await file.text();
+        const file = this.path(path);
+        const text = await readFile(file, "utf8");
         const count = text.split(old_string).length - 1;
         if (count !== 1) throw new Error(`old_string found ${count} times, need exactly 1`);
-        await Bun.write(file, text.replace(old_string, () => new_string));
+        await writeFile(file, text.replace(old_string, () => new_string), "utf8");
         return `edited ${path}`;
     }
 }
@@ -123,7 +123,7 @@ export class ReplaceLinesTool extends FileTool {
     }
     async run({ path, start_line, end_line, new_content }: Record<string, any>) {
         const file = this.path(path);
-        const text = await Bun.file(file).text();
+        const text = await readFile(file, "utf8");
         const trailingNewline = text.endsWith("\n");
         const lines = text.split("\n");
         if (trailingNewline) lines.pop(); // aakhri khali element line count me na aaye
@@ -139,7 +139,7 @@ export class ReplaceLinesTool extends FileTool {
         const raw = String(new_content ?? "");
         const replacement = raw === "" ? [] : (raw.endsWith("\n") ? raw.slice(0, -1) : raw).split("\n");
         const out = [...lines.slice(0, start - 1), ...replacement, ...lines.slice(end)];
-        await Bun.write(file, out.join("\n") + (trailingNewline ? "\n" : ""));
+        await writeFile(file, out.join("\n") + (trailingNewline ? "\n" : ""), "utf8");
 
         const done = end < start ? `inserted ${replacement.length} line(s) at ${start}` : `replaced lines ${start}-${end}`;
         return `${done} in ${path}`;

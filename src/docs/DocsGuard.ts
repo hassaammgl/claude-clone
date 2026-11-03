@@ -4,6 +4,7 @@ import { dirname, extname, join } from "node:path";
 import type { Guard } from "../agent/Agent";
 import type { Tool } from "../tools/Tool";
 import { runCmd } from "./DocSource";
+import { readText } from "../util/Fs";
 
 /** Is session me kin libraries ke docs padhe ja chuke hain (/clear pe reset) */
 export class DocsRegistry {
@@ -43,7 +44,7 @@ const GUARDED: Record<string, (a: Record<string, any>, root: string) => GuardPai
 async function linesInRange(root: string, path: string, start: number, end: number): Promise<string> {
     if (!path || !Number.isInteger(start) || start < 1 || !Number.isInteger(end)) return "";
     try {
-        const lines = (await Bun.file(join(root, path)).text()).split("\n");
+        const lines = (await readText(join(root, path))).split("\n");
         return lines.slice(start - 1, Math.max(start - 1, end)).join("\n");
     } catch {
         return ""; // file nahi mili: write_file jaisa hi treat karo
