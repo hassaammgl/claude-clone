@@ -93,7 +93,7 @@ export class Tui implements AgentUI {
         const plan = todos ? ` ${dim("·")} ${cyan(`${todos} todos`)}` : "";
         console.log(`  ${bold("✻ Noni")} ${dim("·")} ${cyan(model)} ${dim("·")} ${tools} tools${plan}`);
         console.log(`  ${dim("/help  /tools  /todos  /jobs")}`);
-        console.log(`  ${dim("/model <name>  /clear  /think  /exit")}`);
+        console.log(`  ${dim("/model <name>  /clear  /think  /update  /exit")}`);
         console.log(`  ${this.rule()}`);
         this.ruleShown = true;
     }

@@ -42,6 +42,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
 - **MCP tools** — load extra tools from the global config `~/.config/noni-chan/config.json`.
 - **Images (vision)** — `/img <path>` se agla message image ke saath model ko jata hai (vision-supporting models pe).
+- **Update check** — startup pe aur long sessions me har 6h npm pe naya version dekhta hai; `/update` se manual.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
 ## Commands
@@ -59,6 +60,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
 | `/think` | toggle model thinking |
+| `/update` | check npm for a newer version |
 | `/exit` | quit |
 
 ## Tools
@@ -140,6 +142,8 @@ ye error screenshot me kya hai?
 | `OLLAMA_NUM_PREDICT` | `4096` | max generated tokens |
 | `OLLAMA_TEMPERATURE` | `0.4` | sampling temperature |
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
+| `NONI_NO_UPDATE_CHECK` | — | `1` = update checks skip (offline/CI ke liye) |
+| `NONI_UPDATE_INTERVAL_MS` | `21600000` (6h) | long session me dobara check ka interval |
 
 MCP servers come from the global config at `~/.config/noni-chan/config.json` (or `$XDG_CONFIG_HOME/noni-chan/config.json`):
 

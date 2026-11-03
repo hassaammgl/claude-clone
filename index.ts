@@ -32,8 +32,10 @@ import { ReadDocsTool } from "./src/tools/DocsTool";
 import { TodoStore } from "./src/todos/TodoStore";
 import { TodoTool } from "./src/tools/TodoTool";
 import { loadConfig } from "./src/config/Config";
+import { checkForUpdate, type UpdateInfo } from "./src/update/UpdateCheck";
 
 const cwd = process.cwd();
+const updatePromise = checkForUpdate();
 const jobs = new JobManager();
 const ollama = new Ollama({
   host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
@@ -193,7 +195,30 @@ ui.onExit(async () => {
 
 ui.banner(agent.model, agent.listTools().length, todos.size);
 
+/** Ek hi latest version ka warning dobara na dikhe */
+let notifiedVersion = "";
+function showUpdate(info: UpdateInfo, force = false) {
+  if (!force && notifiedVersion === info.latest) return;
+  notifiedVersion = info.latest;
+  ui.warn(`update available: ${info.current} → ${info.latest}`);
+  ui.log(`install: bun add -g ${info.name}@latest`);
+}
+
+const UPDATE_INTERVAL_MS =
+  Number(process.env.NONI_UPDATE_INTERVAL_MS) || 6 * 60 * 60 * 1000;
+let lastUpdateCheck = Date.now();
+
+const update = await updatePromise;
+if (update.status === "update") showUpdate(update);
+
 while (true) {
+  // Long session me bhi naya version pakdo: har 6 ghante (ya env override) pe check
+  if (Date.now() - lastUpdateCheck >= UPDATE_INTERVAL_MS) {
+    lastUpdateCheck = Date.now();
+    const refreshed = await checkForUpdate();
+    if (refreshed.status === "update") showUpdate(refreshed);
+  }
+
   let input: string;
   try {
     input = await ui.prompt();
@@ -210,6 +235,13 @@ while (true) {
   else if (input === "/think") {
     agent.think = !agent.think;
     ui.log(`thinking: ${agent.think ? "ON" : "OFF"}`);
+  } else if (input === "/update") {
+    ui.log("checking npm for updates...");
+    const result = await checkForUpdate();
+    if (result.status === "update") showUpdate(result, true);
+    else if (result.status === "current") ui.log(`up to date: ${result.name} ${result.current}`);
+    else if (result.reason === "disabled") ui.warn("update check disabled (NONI_NO_UPDATE_CHECK)");
+    else ui.warn("update check failed (offline ya npm registry down?)");
   } else if (input === "/help")
     ui.log(
       [
@@ -224,6 +256,7 @@ while (true) {
         "/model <name>    model switch",
         "/clear           chat history clear (plan rehta hai)",
         "/think           thinking on/off",
+        "/update          npm pe naya version check karo",
         "/exit            quit",
       ].join("\n"),
     );
