@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { Ollama } from "ollama";
 import { Agent } from "./src/agent/Agent";
 import { McpManager } from "./src/mcp/McpManager";
@@ -148,6 +150,26 @@ let busy = false;
 let closing = false;
 let shuttingDown = false;
 
+/** /img se attach hui image — agle message ke saath jati hai, phir clear */
+let pendingImage: { path: string; base64: string; bytes: number } | null = null;
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const fmtSize = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(0)} KB`);
+
+/** Image file → base64. Log me sirf path/size jata hai, data kabhi nahi */
+async function loadImage(raw: string) {
+  const clean = raw.trim().replace(/^~(?=$|\/)/, homedir());
+  const file = Bun.file(resolve(cwd, clean));
+  if (!(await file.exists())) throw new Error(`image not found: ${clean}`);
+  if (!/^image\//.test(file.type)) throw new Error(`not an image (${file.type || "unknown type"}): ${clean}`);
+  if (file.size > MAX_IMAGE_BYTES) throw new Error(`image too big: ${(file.size / 1e6).toFixed(1)} MB (max 10 MB)`);
+  if (!(await agent.supportsVision())) {
+    throw new Error(`model ${agent.model} vision support nahi karta; /model se vision wala model chuno`);
+  }
+  return { path: clean, base64: Buffer.from(await file.arrayBuffer()).toString("base64"), bytes: file.size };
+}
+
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -181,7 +203,10 @@ while (true) {
   if (input.startsWith("/")) logger.command(input);
 
   if (input === "/exit") ui.close();
-  else if (input === "/clear") agent.reset();
+  else if (input === "/clear") {
+    agent.reset();
+    pendingImage = null;
+  }
   else if (input === "/think") {
     agent.think = !agent.think;
     ui.log(`thinking: ${agent.think ? "ON" : "OFF"}`);
@@ -195,6 +220,8 @@ while (true) {
         "/jobs            background jobs",
         "/jobs kill <id>  job band karo",
         "/logs [n]        last n log lines + file path",
+        "/img <path>      image agle message ke saath bhejo",
+        "/img clear       pending image hatao",
         "/model <name>    model switch",
         "/clear           chat history clear (plan rehta hai)",
         "/think           thinking on/off",
@@ -225,6 +252,27 @@ while (true) {
         ui.error(e.message);
       }
     }
+  } else if (input === "/img") {
+    ui.log(
+      pendingImage
+        ? `image ready: ${pendingImage.path} (${fmtSize(pendingImage.bytes)}) — ab sawaal likho`
+        : "usage: /img <path>   (agli message ke saath jayegi)",
+    );
+  } else if (input.startsWith("/img ")) {
+    const arg = input.slice(4).trim();
+    if (arg === "clear") {
+      pendingImage = null;
+      ui.log("image hata di");
+    } else {
+      try {
+        pendingImage = await loadImage(arg);
+        logger.log("image", { event: "attach", path: pendingImage.path, bytes: pendingImage.bytes });
+        ui.log(`image ready: ${pendingImage.path} (${fmtSize(pendingImage.bytes)}) — ab sawaal likho`);
+      } catch (e: any) {
+        logger.error(e.message);
+        ui.error(e.message);
+      }
+    }
   } else if (input === "/logs" || input.startsWith("/logs ")) {
     const n = Number(input.split(/\s+/)[1]) || 20;
     const lines = await logger.tail(n);
@@ -235,8 +283,14 @@ while (true) {
     ui.log(`model: ${agent.model}`);
   } else {
     busy = true;
+    const images = pendingImage ? [pendingImage.base64] : [];
+    if (pendingImage) {
+      logger.log("image", { event: "send", path: pendingImage.path, bytes: pendingImage.bytes });
+      ui.log(`+ image: ${pendingImage.path}`);
+      pendingImage = null;
+    }
     try {
-      await agent.run(input);
+      await agent.run(input, images);
     } catch (e: any) {
       logger.error(e.message);
       ui.error(e.message);

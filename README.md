@@ -41,6 +41,7 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **Nested todos** — plan tasks and subtasks, iterate with `next`/`done`.
 - **Background jobs** — long builds keep running; wait, check status, or kill them.
 - **MCP tools** — load extra tools from the global config `~/.config/noni-chan/config.json`.
+- **Images (vision)** — `/img <path>` se agla message image ke saath model ko jata hai (vision-supporting models pe).
 - **Session logs** — JSONL logs for inputs, tool calls, results, jobs and errors.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
@@ -55,6 +56,8 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/jobs` | background jobs |
 | `/jobs kill <id>` | stop a background job |
 | `/logs [n]` | last n log lines + log file path |
+| `/img <path>` | image attach karo — agli message ke saath jayegi |
+| `/img clear` | pending image hatao |
 | `/model <name>` | switch model |
 | `/clear` | clear chat history (plan stays) |
 | `/think` | toggle model thinking |
@@ -116,6 +119,18 @@ A JS/TS/Python file that newly imports a third-party package is blocked until yo
 The agent can work on other todos while a job runs. Jobs are stopped when the app exits.
 
 `action=jobs` lists background jobs only. For folders use the `list_dir` tool; for files use `read_file`, `glob` or `grep`.
+
+### Images
+
+```
+/img ~/Pictures/screenshot.png
+ye error screenshot me kya hai?
+```
+
+- Sirf vision wale models (jaise `qwen3.5`) — Ollama `capabilities` se check hota hai, warna saaf error.
+- Max 10 MB, aur file `image/*` honi chahiye (extension/mime se).
+- `/img clear` pending image hata deta hai; `/clear` chat ke saath image bhi reset karta hai.
+- Logs me sirf path aur size jata hai — base64 kabhi log nahi hota.
 
 ## Configuration
 
@@ -214,5 +229,21 @@ npm cache clean --force
 ## Limitations
 
 - Ollama is the only provider right now (no Anthropic/Gemini/OpenAI adapters yet).
+- Images need a vision model (checked via Ollama `capabilities`). Image data is base64 in memory, never in logs; older images stay in the chat history, so long image chats eat context — `/clear` resets.
 - The docs guard sees import lines, not every dynamic API use.
 - Very small models can still produce malformed tool calls. 2B+ models are more reliable.
+
+
+lets add image feature becuse its already in this model lets add this feature or first history feature what do u think 
+import ollama from 'ollama'
+
+const imagePath = '/absolute/path/to/image.jpg'
+const response = await ollama.chat({
+  model: 'gemma4',
+  messages: [
+    { role: 'user', content: 'What is in this image?', images: [imagePath] }
+  ],
+  stream: false,
+})
+
+console.log(response.message.content)

@@ -163,13 +163,34 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
 - One short dry joke is fine. Two is a stand-up set, and this is a terminal.`;
     }
 
-    async run(input: string) {
+    /** Model vision (image) input leta hai ya nahi — Ollama capabilities se, per model cache */
+    private visionByModel = new Map<string, boolean>();
+    async supportsVision(): Promise<boolean> {
+        const cached = this.visionByModel.get(this.model);
+        if (cached !== undefined) return cached;
+        try {
+            const info: any = await this.ollama.show({ model: this.model });
+            const caps: string[] = Array.isArray(info?.capabilities) ? info.capabilities : [];
+            const ok = caps.includes("vision");
+            this.visionByModel.set(this.model, ok);
+            return ok;
+        } catch {
+            return false;
+        }
+    }
+
+    async run(input: string, images: string[] = []) {
         // Har run pe system prompt refresh, taake model/tools/date current rahe
         this.messages[0] = { role: "system", content: this.systemPrompt() };
-        this.messages.push({ role: "user", content: input });
+        this.messages.push({ role: "user", content: input, ...(images.length ? { images } : {}) });
 
         const startedAt = Date.now();
-        this.logEvent("agent_start", { model: this.model, messages: this.messages.length, think: this.think });
+        this.logEvent("agent_start", {
+            model: this.model,
+            messages: this.messages.length,
+            think: this.think,
+            images: images.length,
+        });
         try {
             await this.loop();
         } finally {
