@@ -10,6 +10,7 @@
   "files": [
     "bin",
     "index.ts",
+    "serve.ts",
     "src",
     "README.md",
     "TOOLS.md"
@@ -17,6 +18,7 @@
   "scripts": {
     "dev": "bun run --watch index.ts",
     "start": "bun index.ts",
+    "serve": "bun serve.ts",
     "typecheck": "bunx tsc --noEmit",
     "prepublishOnly": "bun run typecheck"
   },

@@ -1,141 +1,68 @@
 import { homedir } from "node:os";
 import { extname, resolve } from "node:path";
 import { readFile, stat } from "node:fs/promises";
-import { Ollama } from "ollama";
-import { Agent } from "./src/agent/Agent";
-import { McpManager } from "./src/mcp/McpManager";
-import { BashTool } from "./src/tools/BashTool";
-import { GlobTool, GrepTool } from "./src/tools/SearchTools";
-import { SystemInfoTool } from "./src/tools/SystemTool";
-import {
-  DeleteFileTool,
-  EditFileTool,
-  ListDirTool,
-  MakeDirTool,
-  MoveFileTool,
-  ReadFileTool,
-  ReplaceLinesTool,
-  WriteFileTool,
-} from "./src/tools/FileTool";
-import { GitTool } from "./src/tools/GitTool";
-import { AskUserTool } from "./src/tools/AskUserTool";
 import { Tui } from "./src/ui/Tui";
-import { JobManager } from "./src/jobs/JobManager";
-import { WebFetchTool, WebSearchTool } from "./src/tools/WebTools";
-import { SearchEngine } from "./src/search/SearchEngine";
-import { SearxngProvider } from "./src/search/SearxngProvider";
-import { DuckDuckGoProvider } from "./src/search/DuckDuckGoProvider";
-import { DocsGuard, DocsRegistry } from "./src/docs/DocsGuard";
-import { NodeModulesSource, SystemSource } from "./src/docs/LocalSources";
-import { RegistrySource, WebDocsSource } from "./src/docs/RemoteSources";
-import { ReadDocsTool } from "./src/tools/DocsTool";
-import { TodoStore } from "./src/todos/TodoStore";
-import { TodoTool } from "./src/tools/TodoTool";
-import { loadConfig } from "./src/config/Config";
 import { checkForUpdate, type UpdateInfo } from "./src/update/UpdateCheck";
+import { createRuntime } from "./src/app/Runtime";
+import { pickModel } from "./src/app/ModelPicker";
+import { startServer, type RunningServer } from "./src/server/Server";
+import { WebAgentUI } from "./src/server/WebAgentUI";
 
 const cwd = process.cwd();
 const updatePromise = checkForUpdate();
-const jobs = new JobManager();
-const ollama = new Ollama({
-  host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
-});
 const ui = new Tui();
-const mcp = new McpManager();
 
-const FALLBACK_MODEL = "qwen3.5:0.8b";
-
-/** "752.39M" / "1.9B" -> billions, taake sabse chhota model pehle aaye. */
-function paramsB(text: string): number {
-  const m = /([\d.]+)\s*([KMBT])/i.exec(text);
-  if (!m) return Number.POSITIVE_INFINITY;
-  const n = Number(m[1]);
-  const unit = m[2]!.toUpperCase();
-  return n * (unit === "K" ? 1e-6 : unit === "M" ? 1e-3 : unit === "B" ? 1 : 1e3);
+// Agent + tools ek hi jagah se: TUI aur `noni serve` dono yahi runtime use karte hain
+const model = await pickModel(ui);
+const runtime = await createRuntime({ cwd, model, ui });
+const { agent, jobs, todos } = runtime;
+if (runtime.configError) {
+  ui.warn(`config.json padha nahi gaya (${runtime.configError}); defaults use kar rahi hoon`);
 }
 
-/** Startup pe model chuno. OLLAMA_MODEL set ho ya stdin TTY na ho to bina puche wahi/fallback. */
-async function pickModel(): Promise<string> {
-  const fromEnv = process.env.OLLAMA_MODEL?.trim();
-  if (fromEnv) return fromEnv;
-  if (!process.stdin.isTTY) return FALLBACK_MODEL;
+/** `/client on|off` — wahi process, wahi agent aur tools. */
+const webUi = new WebAgentUI();
+const CLIENT_PORT = Number(process.env.NONI_PORT) || 4317;
+let client: RunningServer | null = null;
+let clientStarting = false;
 
+async function clientOn(port = CLIENT_PORT) {
+  if (client) {
+    ui.log(`client already ON → ${client.url}`);
+    return;
+  }
+  if (clientStarting) {
+    ui.log("client start ho raha hai…");
+    return;
+  }
+  clientStarting = true;
   try {
-    const { models } = await ollama.list();
-    const choices = models
-      .filter((m) => {
-        const caps = (m as { capabilities?: string[] }).capabilities;
-        return !caps?.length || caps.includes("completion");
-      })
-      .map((m) => {
-        const params = m.details?.parameter_size ?? "?";
-        return {
-          name: m.name,
-          params,
-          size: m.size ? `${(m.size / 1024 ** 3).toFixed(1)} GB` : "?",
-          order: paramsB(params === "?" ? m.name : params),
-          bytes: m.size,
-        };
-      })
-      .sort((a, b) => a.order - b.order || a.bytes - b.bytes);
-
-    if (!choices.length) {
-      ui.warn(`koi chat model nahi mila, ${FALLBACK_MODEL} use kar rahi hoon`);
-      return FALLBACK_MODEL;
-    }
-    return await ui.chooseModel(choices, 0); // sabse chhota = default
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    ui.warn(`Ollama se model list nahi aayi (${msg}); ${FALLBACK_MODEL} use kar rahi hoon`);
-    return FALLBACK_MODEL;
+    client = await startServer({ runtime, ui: webUi, port });
+    ui.log(`client ON → ${client.url}`);
+    if (process.env.NONI_SERVE_TOKEN) ui.log("token chahiye (x-noni-token)");
+    ui.log("browser me kholo; band karne ke liye /client off");
+  } catch (e: any) {
+    ui.error(`client start nahi hua: ${e.message}`);
+  } finally {
+    clientStarting = false;
   }
 }
 
-// Global config (~/.config/noni-chan/config.json): model defaults + MCP servers
-const { config, error: configError } = await loadConfig();
-if (configError) ui.warn(`config.json padha nahi gaya (${configError}); defaults use kar rahi hoon`);
+async function clientOff() {
+  if (!client) {
+    ui.log("client already OFF");
+    return;
+  }
+  const running = client;
+  client = null;
+  await running.stop();
+  webUi.cancelPending();
+  ui.log("client OFF");
+}
 
-const agent = new Agent(ollama, await pickModel(), ui, cwd, config.llm);
-
-const search = new SearchEngine([
-  new SearxngProvider(process.env.SEARXNG_URL ?? "http://localhost:8080"), // pehle apna
-  new DuckDuckGoProvider(), // fallback
-]);
-const docs = new DocsRegistry();
-const todos = new TodoStore();
-
-// third-party import wale edit pe docs padhna zaroori
-agent.addGuard(new DocsGuard(docs, cwd));
-// Plan har run ke system prompt me, taake model apne tasks na bhoole
-agent.addContext(() => (todos.size ? todos.render(6_000) : ""));
-
-const mcpTools = await mcp.load(config.mcp.servers);
-agent.addTools(
-  new ReadFileTool(cwd),
-  new ListDirTool(cwd),
-  new WriteFileTool(cwd),
-  new EditFileTool(cwd),
-  new ReplaceLinesTool(cwd),
-  new MoveFileTool(cwd),
-  new MakeDirTool(cwd),
-  new GitTool(cwd),
-  new AskUserTool((question, options) => ui.ask(question, options)),
-  new DeleteFileTool(cwd),
-  new BashTool(cwd, jobs),
-  new GlobTool(cwd),
-  new GrepTool(cwd),
-  new SystemInfoTool(),
-  new TodoTool(todos),
-  new WebSearchTool(search),
-  new WebFetchTool(),
-  new ReadDocsTool(docs, [
-    new NodeModulesSource(cwd), // JS/TS: installed package
-    new SystemSource(cwd), // Python (pydoc), Go (go doc), C/C++ (man + /usr/include)
-    new RegistrySource(), // npm / PyPI
-    new WebDocsSource(search), // last resort
-  ]),
-  ...mcpTools,
-);
+function clientStatus(): string {
+  return client ? `ON → ${client.url}` : "OFF";
+}
 
 let busy = false;
 let closing = false;
@@ -181,8 +108,12 @@ async function loadImage(raw: string) {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  await jobs.closeAll();
-  await mcp.close();
+  if (client) {
+    const running = client;
+    client = null;
+    await running.stop();
+  }
+  await runtime.shutdown();
 }
 
 ui.onExit(async () => {
@@ -229,12 +160,61 @@ while (true) {
 
   if (input === "/exit") ui.close();
   else if (input === "/clear") {
-    agent.reset();
-    pendingImage = null;
+    if (runtime.runLock.busy) ui.warn("agent busy hai — jab chat khatam ho tab /clear karo");
+    else {
+      runtime.newSession();
+      pendingImage = null;
+      ui.log("chat clear — naya session shuru");
+    }
   }
   else if (input === "/think") {
     agent.think = !agent.think;
     ui.log(`thinking: ${agent.think ? "ON" : "OFF"}`);
+  } else if (input === "/client" || input.startsWith("/client ")) {
+    const parts = input.split(/\s+/);
+    const arg = parts[1] ?? "";
+    if (arg === "on") {
+      const port = Number(parts[2]);
+      await clientOn(Number.isFinite(port) && port > 0 ? port : CLIENT_PORT);
+    } else if (arg === "off") await clientOff();
+    else
+      ui.log(
+        `client: ${clientStatus()}\nusage: /client on [port] | /client off`,
+      );
+  } else if (input === "/history" || input.startsWith("/history ")) {
+    const arg = input.split(/\s+/)[1] ?? "";
+    if (!arg) {
+      const sessions = runtime.history.list(15);
+      ui.log(
+        sessions.length
+          ? sessions
+              .map(
+                (s) =>
+                  `${String(s.id).padStart(3)}  ${s.updatedAt.slice(0, 16).replace("T", " ")}  ${s.title}`,
+              )
+              .join("\n")
+          : "koi history nahi",
+      );
+      ui.log(`current: #${runtime.sessionId}`);
+    } else if (runtime.runLock.busy) {
+      ui.warn("agent busy hai — history baad me load karo");
+    } else {
+      const id = Number(arg);
+      if (!Number.isInteger(id)) {
+        ui.warn("usage: /history [id]");
+      } else {
+        try {
+          const messages = runtime.loadSession(id);
+          ui.log(`loaded #${id} (${messages.length} messages)`);
+          const tail = messages
+            .slice(-6)
+            .map((m) => `${m.role}: ${m.content.replace(/\s+/g, " ").slice(0, 120)}`);
+          if (tail.length) ui.log(tail.join("\n"));
+        } catch (e: any) {
+          ui.error(e.message);
+        }
+      }
+    }
   } else if (input === "/update") {
     ui.log("checking npm for updates...");
     const result = await checkForUpdate();
@@ -254,8 +234,10 @@ while (true) {
         "/img <path>      image agle message ke saath bhejo",
         "/img clear       pending image hatao",
         "/model <name>    model switch",
-        "/clear           chat history clear (plan rehta hai)",
+        "/clear           chat history clear (naya session)",
+        "/history [id]    saved sessions dekho / load karo",
         "/think           thinking on/off",
+        "/client on|off   web UI server on/off (same process)",
         "/update          npm pe naya version check karo",
         "/exit            quit",
       ].join("\n"),
@@ -302,9 +284,17 @@ while (true) {
       }
     }
   } else if (input.startsWith("/model")) {
+    if (runtime.runLock.busy) {
+      ui.warn("agent busy hai — model baad me switch karo");
+      continue;
+    }
     agent.model = input.split(" ")[1] ?? agent.model;
     ui.log(`model: ${agent.model}`);
   } else {
+    if (!runtime.runLock.tryAcquire()) {
+      ui.warn("web client chat chal raha hai — /client off karo ya thoda wait karo");
+      continue;
+    }
     busy = true;
     const images = pendingImage ? [pendingImage.base64] : [];
     if (pendingImage) {
@@ -317,6 +307,7 @@ while (true) {
       ui.error(e.message);
     } finally {
       busy = false;
+      runtime.runLock.release();
     }
   }
   if (closing) break;

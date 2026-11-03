@@ -43,6 +43,8 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 - **MCP tools** — load extra tools from the global config `~/.config/noni-chan/config.json`.
 - **Images (vision)** — `/img <path>` se agla message image ke saath model ko jata hai (vision-supporting models pe).
 - **Update check** — startup pe aur long sessions me har 6h npm pe naya version dekhta hai; `/update` se manual.
+- **Web client** — optional React VRM avatar + voice + chat UI (`client/`), `noni serve` ke local bridge se wahi agent/tools chalata hai.
+- **History** — har chat SQLite me save hoti hai; TUI `/history` aur web History button se wapas kholo.
 - **Small-model friendly TUI** — compact output, previews before risky edits, spinner with elapsed time.
 
 ## Commands
@@ -58,8 +60,12 @@ First launch shows a model picker. `Enter` picks the smallest installed chat mod
 | `/img <path>` | image attach karo — agli message ke saath jayegi |
 | `/img clear` | pending image hatao |
 | `/model <name>` | switch model |
-| `/clear` | clear chat history (plan stays) |
+| `/history [id]` | saved sessions list karo / load karo |
+| `/clear` | chat clear — naya session |
 | `/think` | toggle model thinking |
+| `/client on [port]` | web UI server **usi process** me start karo (default 4317) |
+| `/client off` | web UI server band karo |
+| `/client` | client status + usage |
 | `/update` | check npm for a newer version |
 | `/exit` | quit |
 
@@ -144,6 +150,7 @@ ye error screenshot me kya hai?
 | `SEARXNG_URL` | `http://localhost:8080` | SearXNG instance |
 | `NONI_NO_UPDATE_CHECK` | — | `1` = update checks skip (offline/CI ke liye) |
 | `NONI_UPDATE_INTERVAL_MS` | `21600000` (6h) | long session me dobara check ka interval |
+| `NONI_HISTORY_DB` | `~/.local/share/noni-chan/history.db` | SQLite chat history path |
 
 MCP servers come from the global config at `~/.config/noni-chan/config.json` (or `$XDG_CONFIG_HOME/noni-chan/config.json`):
 
@@ -175,6 +182,45 @@ Same file me model defaults bhi hain — context length by default har model ki 
 
 `num_ctx` ko number (jaise `32768`) kar do to usi value pe cap ho jayegi. `OLLAMA_NUM_CTX` env isse bhi upar hai (emergency override).
 
+## Web client (`noni serve`)
+
+Browser UI (`client/` — VRM avatar + voice + chat) agent ko local HTTP/SSE bridge se chalata hai: history, tool cards, confirm dialogs aur voice, sab ek jagah. Animation tester dashboard hata diya hai; idle/motions khud chalti rehti hain.
+
+**TUI se hi on/off (same process, same agent):**
+
+```text
+/client on          # default http://127.0.0.1:4317
+/client on 5000     # custom port
+/client off         # server band
+/client             # status
+```
+
+**Ya alag process me:**
+
+```bash
+bun run serve              # http://127.0.0.1:4317
+bun run serve --port 5000  # ya NONI_PORT=5000
+```
+
+- Server sirf **127.0.0.1** pe bind hota hai; default me koi token nahi.
+- `client/dist` build ho to **`http://127.0.0.1:4317/`** pe UI khud serve hoti hai; build na ho to setup page dikhta hai.
+- UI build: `cd client && bun install && bun run build` (UI change ke baad dobara).
+- Hot-reload dev ke liye: `cd client && bun run dev` → `http://localhost:5173` (`VITE_NONI_URL` se server URL).
+- `NONI_SERVE_TOKEN=secret` set karo to client ko `x-noni-token` header bhejna hoga.
+- CORS sirf localhost origins (+ `NONI_SERVE_ORIGIN`) allow karta hai.
+- Endpoints: `GET /api/health`, `/api/state`, `/api/models`; `POST /api/chat` (SSE), `/api/confirm`, `/api/answer`, `/api/model`, `/api/clear`.
+- Dangerous tools ka confirm server-side hi enforce hota hai — browser sirf allow/deny bhejta hai.
+- TUI aur web ek waqt me ek hi run chalate hain; dusra try kare to busy warning milti hai.
+
+## History
+
+Har user/assistant message SQLite me save hota hai:
+
+- Default: `~/.local/share/noni-chan/history.db` (`NONI_HISTORY_DB` se badal sakte ho)
+- TUI: `/history` list, `/history <id>` load, `/clear` naya session
+- Web: **History** button, **+ New** naya chat
+- TUI aur web same DB share karte hain
+
 ## Local development
 
 ```bash
@@ -188,7 +234,11 @@ bun run typecheck
 Project layout:
 
 ```
-index.ts              entry point + command loop
+index.ts              TUI entry point + command loop
+serve.ts              `noni serve` HTTP/SSE entry
+src/app/              shared runtime (agent + tools) and model picker
+src/history/          SQLite chat history (sessions + messages)
+src/server/           web bridge (SSE + confirm/ask + static client)
 src/agent/            agent loop, guards, persona
 src/tools/            built-in tools
 src/docs/             docs sources + DocsGuard
@@ -196,6 +246,7 @@ src/todos/            nested task store
 src/jobs/             background job manager
 src/search/           search providers + fallback engine
 src/ui/               terminal UI
+client/               React VRM avatar + voice + chat UI (optional)
 test/                 unit + integration tests
 ```
 

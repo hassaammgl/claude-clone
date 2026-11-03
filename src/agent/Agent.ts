@@ -44,6 +44,13 @@ export interface Guard {
     reset?(): void;
 }
 
+/** Agent jo messages conversation me add karta hai (history store ke liye). */
+export interface AgentMessageEvent {
+    role: "user" | "assistant";
+    content: string;
+    thinking?: string;
+}
+
 /** Persona lives in persona.md so it can be edited without touching the app. */
 const PERSONA = (await readText(new URL("./persona.md", import.meta.url))).trim();
 
@@ -53,6 +60,7 @@ export class Agent {
     private contexts: (() => string)[] = [];
     private messages: Message[] = [];
     private ctxByModel = new Map<string, number>();
+    private messageSink?: (msg: AgentMessageEvent) => void;
     public think = false;
 
     constructor(
@@ -71,6 +79,28 @@ export class Agent {
 
     addGuard(guard: Guard) {
         this.guards.push(guard);
+    }
+
+    /** Ek run ke liye UI badlo (TUI ↔ web client); runs serialized rehte hain. */
+    setUI(ui: AgentUI) {
+        this.ui = ui;
+    }
+
+    /** Har user/assistant message ek sink ko do (SQLite history). */
+    onMessage(sink: (msg: AgentMessageEvent) => void) {
+        this.messageSink = sink;
+    }
+
+    /** Purani chat ko context me wapas load karo (tools/todos wali state fresh rahegi). */
+    loadHistory(items: { role: string; content: string; thinking?: string }[]) {
+        const past: Message[] = items
+            .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim())
+            .map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+                ...(m.thinking ? { thinking: m.thinking } : {}),
+            }));
+        this.messages = [{ role: "system", content: this.systemPrompt() }, ...past];
     }
 
     /** Har run ke system prompt me extra live context (jaise current todo plan). */
@@ -174,6 +204,7 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
         // Har run pe system prompt refresh, taake model/tools/date current rahe
         this.messages[0] = { role: "system", content: this.systemPrompt() };
         this.messages.push({ role: "user", content: input, ...(images.length ? { images } : {}) });
+        this.messageSink?.({ role: "user", content: input });
 
         await this.loop();
     }
@@ -264,6 +295,13 @@ ${extra ? `\n## Current plan (live)\n${extra}\n` : ""}
             if (thinking) reply.thinking = thinking;
             if (calls.length) reply.tool_calls = calls;
             this.messages.push(reply);
+            if (content || thinking) {
+                this.messageSink?.({
+                    role: "assistant",
+                    content,
+                    thinking: thinking || undefined,
+                });
+            }
 
             if (!calls.length) return;
 
