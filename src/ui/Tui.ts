@@ -92,8 +92,8 @@ export class Tui implements AgentUI {
         console.log();
         const plan = todos ? ` ${dim("·")} ${cyan(`${todos} todos`)}` : "";
         console.log(`  ${bold("✻ Noni")} ${dim("·")} ${cyan(model)} ${dim("·")} ${tools} tools${plan}`);
-        console.log(`  ${dim("/help  /tools  /todos  /jobs  /logs")}`);
-        console.log(`  ${dim("/model <name>  /clear  /think  /exit")}`);
+        console.log(`  ${dim("/help  /tools  /todos  /jobs  /client")}`);
+        console.log(`  ${dim("/model <name>  /clear  /think  /update  /exit")}`);
         console.log(`  ${this.rule()}`);
         this.ruleShown = true;
     }
@@ -173,6 +173,18 @@ export class Tui implements AgentUI {
         }
         const input = await this.rl.question(`${cyan("❯")} `);
         return input.trim();
+    }
+
+    /** Agent ka sawaal (ask_user tool): wahi input bar, pr sawaal dikha ke */
+    async ask(question: string, options: string[] = []): Promise<string> {
+        this.waitingEnd();
+        this.endLine();
+        this.ruleShown = false;
+        console.log(`  ${cyan("?")} ${question}`);
+        options.forEach((option, i) => console.log(`    ${String(i + 1).padStart(2)}. ${option}`));
+        const answer = (await this.rl.question(`  ${cyan("you")} `)).trim();
+        if (options.length && /^\d+$/.test(answer)) return options[Number(answer) - 1] ?? answer;
+        return answer;
     }
 
     /** Spinner jab tak pehla token na aaye */

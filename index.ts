@@ -1,146 +1,119 @@
-import { join } from "node:path";
-import { Ollama } from "ollama";
-import { Agent } from "./src/agent/Agent";
-import { McpManager } from "./src/mcp/McpManager";
-import { BashTool } from "./src/tools/BashTool";
-import { GlobTool, GrepTool } from "./src/tools/SearchTools";
-import { SystemInfoTool } from "./src/tools/SystemTool";
-import {
-  DeleteFileTool,
-  EditFileTool,
-  ListDirTool,
-  ReadFileTool,
-  WriteFileTool,
-} from "./src/tools/FileTool";
+import { homedir } from "node:os";
+import { extname, resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
 import { Tui } from "./src/ui/Tui";
-import { SessionLogger } from "./src/log/SessionLogger";
-import { JobManager } from "./src/jobs/JobManager";
-import { WebFetchTool, WebSearchTool } from "./src/tools/WebTools";
-import { SearchEngine } from "./src/search/SearchEngine";
-import { SearxngProvider } from "./src/search/SearxngProvider";
-import { DuckDuckGoProvider } from "./src/search/DuckDuckGoProvider";
-import { DocsGuard, DocsRegistry } from "./src/docs/DocsGuard";
-import { NodeModulesSource, SystemSource } from "./src/docs/LocalSources";
-import { RegistrySource, WebDocsSource } from "./src/docs/RemoteSources";
-import { ReadDocsTool } from "./src/tools/DocsTool";
-import { TodoStore } from "./src/todos/TodoStore";
-import { TodoTool } from "./src/tools/TodoTool";
+import { checkForUpdate, type UpdateInfo } from "./src/update/UpdateCheck";
+import { createRuntime } from "./src/app/Runtime";
+import { pickModel } from "./src/app/ModelPicker";
+import { startServer, type RunningServer } from "./src/server/Server";
+import { WebAgentUI } from "./src/server/WebAgentUI";
 
 const cwd = process.cwd();
-const logger = new SessionLogger(cwd);
-const jobs = new JobManager((event, job) =>
-  logger.log("job", {
-    event,
-    id: job.id,
-    status: job.status,
-    command: job.command,
-    exit_code: job.exitCode,
-    duration_ms: (job.endedAt ?? Date.now()) - job.startedAt,
-  }),
-);
-const ollama = new Ollama({
-  host: process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
-});
+const updatePromise = checkForUpdate();
 const ui = new Tui();
-const mcp = new McpManager();
 
-const FALLBACK_MODEL = "qwen3.5:0.8b";
-
-/** "752.39M" / "1.9B" -> billions, taake sabse chhota model pehle aaye. */
-function paramsB(text: string): number {
-  const m = /([\d.]+)\s*([KMBT])/i.exec(text);
-  if (!m) return Number.POSITIVE_INFINITY;
-  const n = Number(m[1]);
-  const unit = m[2]!.toUpperCase();
-  return n * (unit === "K" ? 1e-6 : unit === "M" ? 1e-3 : unit === "B" ? 1 : 1e3);
+// Agent + tools ek hi jagah se: TUI aur `noni serve` dono yahi runtime use karte hain
+const model = await pickModel(ui);
+const runtime = await createRuntime({ cwd, model, ui });
+const { agent, jobs, todos } = runtime;
+if (runtime.configError) {
+  ui.warn(`config.json padha nahi gaya (${runtime.configError}); defaults use kar rahi hoon`);
 }
 
-/** Startup pe model chuno. OLLAMA_MODEL set ho ya stdin TTY na ho to bina puche wahi/fallback. */
-async function pickModel(): Promise<string> {
-  const fromEnv = process.env.OLLAMA_MODEL?.trim();
-  if (fromEnv) return fromEnv;
-  if (!process.stdin.isTTY) return FALLBACK_MODEL;
+/** `/client on|off` — wahi process, wahi agent aur tools. */
+const webUi = new WebAgentUI();
+const CLIENT_PORT = Number(process.env.NONI_PORT) || 4317;
+let client: RunningServer | null = null;
+let clientStarting = false;
 
+async function clientOn(port = CLIENT_PORT) {
+  if (client) {
+    ui.log(`client already ON → ${client.url}`);
+    return;
+  }
+  if (clientStarting) {
+    ui.log("client start ho raha hai…");
+    return;
+  }
+  clientStarting = true;
   try {
-    const { models } = await ollama.list();
-    const choices = models
-      .filter((m) => {
-        const caps = (m as { capabilities?: string[] }).capabilities;
-        return !caps?.length || caps.includes("completion");
-      })
-      .map((m) => {
-        const params = m.details?.parameter_size ?? "?";
-        return {
-          name: m.name,
-          params,
-          size: m.size ? `${(m.size / 1024 ** 3).toFixed(1)} GB` : "?",
-          order: paramsB(params === "?" ? m.name : params),
-          bytes: m.size,
-        };
-      })
-      .sort((a, b) => a.order - b.order || a.bytes - b.bytes);
-
-    if (!choices.length) {
-      ui.warn(`koi chat model nahi mila, ${FALLBACK_MODEL} use kar rahi hoon`);
-      return FALLBACK_MODEL;
-    }
-    return await ui.chooseModel(choices, 0); // sabse chhota = default
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    ui.warn(`Ollama se model list nahi aayi (${msg}); ${FALLBACK_MODEL} use kar rahi hoon`);
-    return FALLBACK_MODEL;
+    client = await startServer({ runtime, ui: webUi, port });
+    ui.log(`client ON → ${client.url}`);
+    if (process.env.NONI_SERVE_TOKEN) ui.log("token chahiye (x-noni-token)");
+    ui.log("browser me kholo; band karne ke liye /client off");
+  } catch (e: any) {
+    ui.error(`client start nahi hua: ${e.message}`);
+  } finally {
+    clientStarting = false;
   }
 }
 
-const agent = new Agent(ollama, await pickModel(), ui, cwd);
-agent.addLogger(logger);
+async function clientOff() {
+  if (!client) {
+    ui.log("client already OFF");
+    return;
+  }
+  const running = client;
+  client = null;
+  await running.stop();
+  webUi.cancelPending();
+  ui.log("client OFF");
+}
 
-const search = new SearchEngine([
-  new SearxngProvider(process.env.SEARXNG_URL ?? "http://localhost:8080"), // pehle apna
-  new DuckDuckGoProvider(), // fallback
-]);
-const docs = new DocsRegistry();
-const todos = new TodoStore();
-
-// third-party import wale edit pe docs padhna zaroori
-agent.addGuard(new DocsGuard(docs, cwd));
-// Plan har run ke system prompt me, taake model apne tasks na bhoole
-agent.addContext(() => (todos.size ? todos.render(6_000) : ""));
-
-const mcpTools = await mcp.load(join(cwd, "mcp.json"));
-agent.addTools(
-  new ReadFileTool(cwd),
-  new ListDirTool(cwd),
-  new WriteFileTool(cwd),
-  new EditFileTool(cwd),
-  new DeleteFileTool(cwd),
-  new BashTool(cwd, jobs),
-  new GlobTool(cwd),
-  new GrepTool(cwd),
-  new SystemInfoTool(),
-  new TodoTool(todos),
-  new WebSearchTool(search),
-  new WebFetchTool(),
-  new ReadDocsTool(docs, [
-    new NodeModulesSource(cwd), // JS/TS: installed package
-    new SystemSource(cwd), // Python (pydoc), Go (go doc), C/C++ (man + /usr/include)
-    new RegistrySource(), // npm / PyPI
-    new WebDocsSource(search), // last resort
-  ]),
-  ...mcpTools,
-);
+function clientStatus(): string {
+  return client ? `ON → ${client.url}` : "OFF";
+}
 
 let busy = false;
 let closing = false;
 let shuttingDown = false;
 
+/** /img se attach hui image — agle message ke saath jati hai, phir clear */
+let pendingImage: { path: string; base64: string; bytes: number } | null = null;
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const fmtSize = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(0)} KB`);
+
+const IMAGE_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+};
+
+/** Image file → base64. Log me sirf path/size jata hai, data kabhi nahi */
+async function loadImage(raw: string) {
+  const clean = raw.trim().replace(/^~(?=$|\/)/, homedir());
+  const abs = resolve(cwd, clean);
+  let info;
+  try {
+    info = await stat(abs);
+  } catch {
+    throw new Error(`image not found: ${clean}`);
+  }
+  if (!info.isFile()) throw new Error(`not a file: ${clean}`);
+  const ext = extname(abs).toLowerCase();
+  if (!IMAGE_MIME[ext]) throw new Error(`not an image (${ext || "no extension"}): ${clean}`);
+  if (info.size > MAX_IMAGE_BYTES) throw new Error(`image too big: ${(info.size / 1e6).toFixed(1)} MB (max 10 MB)`);
+  if (!(await agent.supportsVision())) {
+    throw new Error(`model ${agent.model} vision support nahi karta; /model se vision wala model chuno`);
+  }
+  return { path: clean, base64: (await readFile(abs)).toString("base64"), bytes: info.size };
+}
+
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.sessionEnd();
-  await jobs.closeAll();
-  await logger.close();
-  await mcp.close();
+  if (client) {
+    const running = client;
+    client = null;
+    await running.stop();
+  }
+  await runtime.shutdown();
 }
 
 ui.onExit(async () => {
@@ -151,11 +124,32 @@ ui.onExit(async () => {
   process.exit(0);
 });
 
-logger.sessionStart(agent.model, agent.listTools().length);
-logger.event("mcp", { tools: mcpTools.length, config: join(cwd, "mcp.json") });
 ui.banner(agent.model, agent.listTools().length, todos.size);
 
+/** Ek hi latest version ka warning dobara na dikhe */
+let notifiedVersion = "";
+function showUpdate(info: UpdateInfo, force = false) {
+  if (!force && notifiedVersion === info.latest) return;
+  notifiedVersion = info.latest;
+  ui.warn(`update available: ${info.current} → ${info.latest}`);
+  ui.log(`install: bun add -g ${info.name}@latest`);
+}
+
+const UPDATE_INTERVAL_MS =
+  Number(process.env.NONI_UPDATE_INTERVAL_MS) || 6 * 60 * 60 * 1000;
+let lastUpdateCheck = Date.now();
+
+const update = await updatePromise;
+if (update.status === "update") showUpdate(update);
+
 while (true) {
+  // Long session me bhi naya version pakdo: har 6 ghante (ya env override) pe check
+  if (Date.now() - lastUpdateCheck >= UPDATE_INTERVAL_MS) {
+    lastUpdateCheck = Date.now();
+    const refreshed = await checkForUpdate();
+    if (refreshed.status === "update") showUpdate(refreshed);
+  }
+
   let input: string;
   try {
     input = await ui.prompt();
@@ -163,14 +157,71 @@ while (true) {
     break;
   }
   if (!input) continue;
-  logger.input(input);
-  if (input.startsWith("/")) logger.command(input);
 
   if (input === "/exit") ui.close();
-  else if (input === "/clear") agent.reset();
+  else if (input === "/clear") {
+    if (runtime.runLock.busy) ui.warn("agent busy hai — jab chat khatam ho tab /clear karo");
+    else {
+      runtime.newSession();
+      pendingImage = null;
+      ui.log("chat clear — naya session shuru");
+    }
+  }
   else if (input === "/think") {
     agent.think = !agent.think;
     ui.log(`thinking: ${agent.think ? "ON" : "OFF"}`);
+  } else if (input === "/client" || input.startsWith("/client ")) {
+    const parts = input.split(/\s+/);
+    const arg = parts[1] ?? "";
+    if (arg === "on") {
+      const port = Number(parts[2]);
+      await clientOn(Number.isFinite(port) && port > 0 ? port : CLIENT_PORT);
+    } else if (arg === "off") await clientOff();
+    else
+      ui.log(
+        `client: ${clientStatus()}\nusage: /client on [port] | /client off`,
+      );
+  } else if (input === "/history" || input.startsWith("/history ")) {
+    const arg = input.split(/\s+/)[1] ?? "";
+    if (!arg) {
+      const sessions = runtime.history.list(15);
+      ui.log(
+        sessions.length
+          ? sessions
+              .map(
+                (s) =>
+                  `${String(s.id).padStart(3)}  ${s.updatedAt.slice(0, 16).replace("T", " ")}  ${s.title}`,
+              )
+              .join("\n")
+          : "koi history nahi",
+      );
+      ui.log(`current: #${runtime.sessionId}`);
+    } else if (runtime.runLock.busy) {
+      ui.warn("agent busy hai — history baad me load karo");
+    } else {
+      const id = Number(arg);
+      if (!Number.isInteger(id)) {
+        ui.warn("usage: /history [id]");
+      } else {
+        try {
+          const messages = runtime.loadSession(id);
+          ui.log(`loaded #${id} (${messages.length} messages)`);
+          const tail = messages
+            .slice(-6)
+            .map((m) => `${m.role}: ${m.content.replace(/\s+/g, " ").slice(0, 120)}`);
+          if (tail.length) ui.log(tail.join("\n"));
+        } catch (e: any) {
+          ui.error(e.message);
+        }
+      }
+    }
+  } else if (input === "/update") {
+    ui.log("checking npm for updates...");
+    const result = await checkForUpdate();
+    if (result.status === "update") showUpdate(result, true);
+    else if (result.status === "current") ui.log(`up to date: ${result.name} ${result.current}`);
+    else if (result.reason === "disabled") ui.warn("update check disabled (NONI_NO_UPDATE_CHECK)");
+    else ui.warn("update check failed (offline ya npm registry down?)");
   } else if (input === "/help")
     ui.log(
       [
@@ -180,10 +231,14 @@ while (true) {
         "/todos clear     plan hatao",
         "/jobs            background jobs",
         "/jobs kill <id>  job band karo",
-        "/logs [n]        last n log lines + file path",
+        "/img <path>      image agle message ke saath bhejo",
+        "/img clear       pending image hatao",
         "/model <name>    model switch",
-        "/clear           chat history clear (plan rehta hai)",
+        "/clear           chat history clear (naya session)",
+        "/history [id]    saved sessions dekho / load karo",
         "/think           thinking on/off",
+        "/client on|off   web UI server on/off (same process)",
+        "/update          npm pe naya version check karo",
         "/exit            quit",
       ].join("\n"),
     );
@@ -204,30 +259,55 @@ while (true) {
     } else {
       try {
         const job = jobs.kill(id);
-        logger.log("job", { event: "kill", id: job.id, status: job.status, command: job.command });
         ui.log(`job ${job.id}: ${job.status}`);
       } catch (e: any) {
-        logger.error(e.message);
         ui.error(e.message);
       }
     }
-  } else if (input === "/logs" || input.startsWith("/logs ")) {
-    const n = Number(input.split(/\s+/)[1]) || 20;
-    const lines = await logger.tail(n);
-    ui.log(`log: ${logger.path}\n${lines.join("\n") || "(empty)"}`);
+  } else if (input === "/img") {
+    ui.log(
+      pendingImage
+        ? `image ready: ${pendingImage.path} (${fmtSize(pendingImage.bytes)}) — ab sawaal likho`
+        : "usage: /img <path>   (agli message ke saath jayegi)",
+    );
+  } else if (input.startsWith("/img ")) {
+    const arg = input.slice(4).trim();
+    if (arg === "clear") {
+      pendingImage = null;
+      ui.log("image hata di");
+    } else {
+      try {
+        pendingImage = await loadImage(arg);
+        ui.log(`image ready: ${pendingImage.path} (${fmtSize(pendingImage.bytes)}) — ab sawaal likho`);
+      } catch (e: any) {
+        ui.error(e.message);
+      }
+    }
   } else if (input.startsWith("/model")) {
+    if (runtime.runLock.busy) {
+      ui.warn("agent busy hai — model baad me switch karo");
+      continue;
+    }
     agent.model = input.split(" ")[1] ?? agent.model;
-    logger.model(agent.model);
     ui.log(`model: ${agent.model}`);
   } else {
+    if (!runtime.runLock.tryAcquire()) {
+      ui.warn("web client chat chal raha hai — /client off karo ya thoda wait karo");
+      continue;
+    }
     busy = true;
+    const images = pendingImage ? [pendingImage.base64] : [];
+    if (pendingImage) {
+      ui.log(`+ image: ${pendingImage.path}`);
+      pendingImage = null;
+    }
     try {
-      await agent.run(input);
+      await agent.run(input, images);
     } catch (e: any) {
-      logger.error(e.message);
       ui.error(e.message);
     } finally {
       busy = false;
+      runtime.runLock.release();
     }
   }
   if (closing) break;

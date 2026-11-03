@@ -47,30 +47,48 @@ export function validateName(raw: unknown): string {
     return n;
 }
 
+import { spawn } from "node:child_process";
+
+/**
+ * Command chalao aur uska output lo. Command na mile ya crash ho to null.
+ * Non-zero exit code bhi normal result hai (code me milta hai) — callers decide karte hain.
+ */
 export async function runCmd(
     cmd: string[],
     opts: { cwd?: string; timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<{ out: string; code: number } | null> {
-    let proc: ReturnType<typeof Bun.spawn>;
-    try {
-        proc = Bun.spawn(cmd, {
-            cwd: opts.cwd,
-            stdin: "ignore",
-            stdout: "pipe",
-            stderr: "pipe",
-            env: { ...process.env, ...opts.env },
+    return await new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(cmd[0]!, cmd.slice(1), {
+                cwd: opts.cwd,
+                stdio: ["ignore", "pipe", "pipe"],
+                env: { ...process.env, ...opts.env },
+            });
+        } catch {
+            return resolve(null);
+        }
+
+        let out = "";
+        let finished = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (value: { out: string; code: number } | null) => {
+            if (finished) return;
+            finished = true;
+            if (timer) clearTimeout(timer);
+            resolve(value);
+        };
+
+        timer = setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs ?? 8_000);
+        child.stdout?.on("data", (chunk) => {
+            out += String(chunk);
         });
-    } catch {
-        return null; // command installed nahi hai
-    }
-    const timer = setTimeout(() => proc.kill("SIGKILL"), opts.timeoutMs ?? 8_000);
-    const [out, , code] = await Promise.all([
-        new Response(proc.stdout as ReadableStream).text(),
-        new Response(proc.stderr as ReadableStream).text(),
-        proc.exited,
-    ]);
-    clearTimeout(timer);
-    return { out, code };
+        child.stderr?.on("data", () => {
+            // drain: buffer bharne na do, output me nahi chahiye
+        });
+        child.on("error", () => finish(null)); // command install nahi hai
+        child.on("close", (code) => finish({ out, code: code ?? -1 }));
+    });
 }
 
 // markdown heading ya man/pydoc style ALL-CAPS heading (NAME, SYNOPSIS, DESCRIPTION...)

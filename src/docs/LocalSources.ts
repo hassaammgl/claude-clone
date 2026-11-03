@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { DocSource, extractRelevant, MAX_DOC_CHARS, runCmd, type DocPage, type DocRequest, type Lang } from "./DocSource";
+import { exists, readJson, readText } from "../util/Fs";
 
 /** JS/TS: project ke node_modules me installed package ka README + type definitions ka pata */
 export class NodeModulesSource extends DocSource {
@@ -16,21 +17,21 @@ export class NodeModulesSource extends DocSource {
 
     async find({ name, topic }: DocRequest): Promise<DocPage | null> {
         const dir = join(this.root, "node_modules", name);
-        const pkgFile = Bun.file(join(dir, "package.json"));
-        if (!(await pkgFile.exists())) return null;
-        const pkg = (await pkgFile.json()) as Record<string, any>;
+        const pkgPath = join(dir, "package.json");
+        if (!(await exists(pkgPath))) return null;
+        const pkg = await readJson<Record<string, any>>(pkgPath);
 
         let readme = "";
         for (const f of ["README.md", "readme.md", "Readme.md", "README.markdown", "README"]) {
-            const file = Bun.file(join(dir, f));
-            if (await file.exists()) {
-                readme = await file.text();
+            const file = join(dir, f);
+            if (await exists(file)) {
+                readme = await readText(file);
                 break;
             }
         }
 
         const types: string | undefined =
-            pkg.types ?? pkg.typings ?? ((await Bun.file(join(dir, "index.d.ts")).exists()) ? "index.d.ts" : undefined);
+            pkg.types ?? pkg.typings ?? ((await exists(join(dir, "index.d.ts"))) ? "index.d.ts" : undefined);
 
         return {
             source: "installed package",
@@ -145,7 +146,7 @@ export class SystemSource extends DocSource {
 
         const header = await findHeader(name);
         if (!header) return null;
-        const src = await Bun.file(header).text();
+        const src = await readText(header);
         const text = (topic && grepContext(src, topic)) || src.slice(0, MAX_DOC_CHARS);
         return {
             source: "system header",
